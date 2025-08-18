@@ -1,0 +1,40 @@
+[package]
+name = "jx"
+version = "0.1.0"
+edition = "2021"
+description = "A fast Java package manager written in Rust"
+authors = ["jx team"]
+license = "MIT"
+
+[[bin]]
+name = "jx"
+path = "src/main.rs"
+
+[dependencies]
+# 命令行参数解析
+clap = { version = "3.2", features = ["derive"] }
+
+# 错误处理
+anyhow = "1.0"
+
+# 文件系统操作
+walkdir = "2.3"
+glob = "0.3"
+
+# 日志
+log = "0.4"
+env_logger = "0.9"
+
+# 时间处理
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# 目录操作
+dirs = "4.0"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+urlencoding = "2.1"
+
+# TOML解析
+toml = "0.7"
