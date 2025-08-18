@@ -17,7 +17,7 @@ jx是一个用Rust编写的快速Java包管理器，类似于Python的uv工具�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/jx.git
+git clone https://github.com/luoxianchong/jx.git
 cd jx
 
 # 编译
