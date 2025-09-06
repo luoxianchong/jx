@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-pub fn execute(file: Option<String>, production: bool, force: bool) -> Result<()> {
+pub fn execute(_file: Option<String>, _production: bool, force: bool) -> Result<()> {
     let current_dir = std::env::current_dir()?;
     
     // 查找项目配置文件
@@ -21,9 +21,9 @@ pub fn execute(file: Option<String>, production: bool, force: bool) -> Result<()
 
     // 根据配置文件类型选择安装方式
     let result = if config_file == "pom.xml" {
-        install_from_maven(&current_dir, production, force)
+        install_from_maven(&current_dir, _production, force)
     } else if config_file == "build.gradle" {
-        install_from_gradle(&current_dir, production, force)
+        install_from_gradle(&current_dir, _production, force)
     } else {
         Err(anyhow::anyhow!("不支持的配置文件类型: {}", config_file))
     };
@@ -92,7 +92,7 @@ fn install_from_maven(project_dir: &Path, production: bool, force: bool) -> Resu
     Ok(())
 }
 
-fn install_from_gradle(project_dir: &Path, production: bool, force: bool) -> Result<()> {
+fn install_from_gradle(project_dir: &Path, _production: bool, force: bool) -> Result<()> {
     println!("使用Gradle安装依赖...");
     
     // 检查Gradle是否安装

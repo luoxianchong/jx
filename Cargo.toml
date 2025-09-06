@@ -38,3 +38,5 @@ urlencoding = "2.1"
 
 # TOML解析
 toml = "0.7"
+
+# HTTP客户端 - 使用curl命令避免依赖问题

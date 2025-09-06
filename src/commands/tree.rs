@@ -283,7 +283,7 @@ fn parse_jx_dependencies(jx_content: &str) -> Result<Vec<ConfigDependency>> {
     Ok(dependencies)
 }
 
-fn add_transitive_dependencies(node: &mut DependencyNode, all_deps: &[ConfigDependency]) {
+fn add_transitive_dependencies(node: &mut DependencyNode, _all_deps: &[ConfigDependency]) {
     // 实现真实的传递依赖解析
     // 基于常见的传递依赖规则和实际项目经验
     
@@ -302,7 +302,7 @@ fn add_transitive_dependencies(node: &mut DependencyNode, all_deps: &[ConfigDepe
     }
 }
 
-fn get_transitive_dependencies(group_id: &str, artifact_id: &str, version: &str) -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
+fn get_transitive_dependencies(group_id: &str, artifact_id: &str, _version: &str) -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     // 基于真实的Maven传递依赖规则
     let mut transitive = Vec::new();
     

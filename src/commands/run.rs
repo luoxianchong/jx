@@ -157,7 +157,7 @@ fn run_maven_project(project_dir: &Path, main_class: &str, args: &[String]) -> R
     Ok(())
 }
 
-fn run_gradle_project(project_dir: &Path, main_class: &str, args: &[String]) -> Result<()> {
+fn run_gradle_project(project_dir: &Path, _main_class: &str, args: &[String]) -> Result<()> {
     println!("使用Gradle运行项目...");
     
     if !check_command_exists("gradle") {

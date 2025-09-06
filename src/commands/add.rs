@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
@@ -69,7 +69,7 @@ fn parse_dependency_coordinate(coordinate: &str) -> Result<DependencyInfo> {
     }
 }
 
-fn add_to_jx_config(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> Result<()> {
+fn add_to_jx_config(project_dir: &Path, dep_info: &DependencyInfo, _scope: &str) -> Result<()> {
     let config_path = project_dir.join("jx.toml");
     
     if !config_path.exists() {
@@ -98,12 +98,12 @@ test_class = "com.example.MainTest"
     
     // 查找dependencies部分
     let mut in_dependencies = false;
-    let mut dependencies_start = 0;
+    let mut _dependencies_start = 0;
     
     for (i, line) in lines.iter().enumerate() {
         if line.trim() == "[dependencies]" {
             in_dependencies = true;
-            dependencies_start = i;
+            _dependencies_start = i;
             break;
         }
     }
@@ -111,7 +111,7 @@ test_class = "com.example.MainTest"
     if !in_dependencies {
         // 如果没有dependencies部分，添加一个
         lines.push("[dependencies]".to_string());
-        dependencies_start = lines.len() - 1;
+        _dependencies_start = lines.len() - 1;
     }
     
     // 构建依赖行
@@ -122,7 +122,7 @@ test_class = "com.example.MainTest"
     };
     
     // 在dependencies部分后添加依赖
-    lines.insert(dependencies_start + 1, dep_line);
+    lines.insert(_dependencies_start + 1, dep_line);
     
     // 写回文件
     fs::write(&config_path, lines.join("\n"))?;
@@ -140,13 +140,13 @@ fn add_to_maven(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> R
     
     // 查找dependencies部分
     let mut in_dependencies = false;
-    let mut dependencies_start = 0;
+    let mut _dependencies_start = 0;
     let mut dependencies_end = 0;
     
     for (i, line) in lines.iter().enumerate() {
         if line.trim() == "<dependencies>" {
             in_dependencies = true;
-            dependencies_start = i;
+            _dependencies_start = i;
         } else if in_dependencies && line.trim() == "</dependencies>" {
             dependencies_end = i;
             break;
@@ -190,12 +190,12 @@ fn add_to_gradle(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> 
     
     // 查找dependencies部分
     let mut in_dependencies = false;
-    let mut dependencies_start = 0;
+    let mut _dependencies_start = 0;
     
     for (i, line) in lines.iter().enumerate() {
         if line.trim() == "dependencies {" {
             in_dependencies = true;
-            dependencies_start = i;
+            _dependencies_start = i;
             break;
         }
     }
@@ -212,7 +212,7 @@ fn add_to_gradle(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> 
     };
     
     // 在dependencies部分后添加依赖
-    lines.insert(dependencies_start + 1, dep_line);
+    lines.insert(_dependencies_start + 1, dep_line);
     
     // 写回文件
     fs::write(&build_gradle_path, lines.join("\n"))?;

@@ -207,16 +207,18 @@ fn main() {
                         .arg(
                             Arg::with_name("maven-version")
                                 .long("maven-version")
-                                .help("Maven版本")
+                                .help("Maven版本 (与gradle-version互斥)")
                                 .default_value("3.9.5")
                                 .takes_value(true)
+                                .conflicts_with("gradle-version")
                         )
                         .arg(
                             Arg::with_name("gradle-version")
                                 .long("gradle-version")
-                                .help("Gradle版本")
-                                .default_value("8.5")
+                                .help("Gradle版本 (与maven-version互斥)")
+                                .default_value("8.4")
                                 .takes_value(true)
+                                .require_equals(true)
                         )
                 )
                 .subcommand(
@@ -342,10 +344,21 @@ fn main() {
             match venv_matches.subcommand() {
                 Some(("create", create_matches)) => {
                     let name = create_matches.value_of("NAME").map(|s| s.to_string());
-                    let java_version = create_matches.value_of("java-version").unwrap_or("11").to_string();
-                    let maven_version = create_matches.value_of("maven-version").unwrap_or("3.9.5").to_string();
-                    let gradle_version = create_matches.value_of("gradle-version").unwrap_or("8.5").to_string();
-                    commands::venv::create(name, java_version, maven_version, gradle_version)
+                    let java_version = create_matches.value_of("java-version").unwrap_or("17").to_string();
+                    
+                    // 确定构建工具类型
+                    let build_tool = if create_matches.is_present("gradle-version") {
+                        let gradle_version = create_matches.value_of("gradle-version").unwrap_or("8.4");
+
+                        // 如果版本为空字符串，使用默认版本
+                        let version = if gradle_version.is_empty() { "8.4" } else { gradle_version };
+                        commands::venv::BuildTool::Gradle(version.to_string())
+                    } else {
+                        let maven_version = create_matches.value_of("maven-version").unwrap_or("3.9.5");
+                        commands::venv::BuildTool::Maven(maven_version.to_string())
+                    };
+                    
+                    commands::venv::create(name, java_version, build_tool)
                 }
                 Some(("activate", activate_matches)) => {
                     let name = activate_matches.value_of("NAME").map(|s| s.to_string());
@@ -369,7 +382,7 @@ fn main() {
                     println!("jx venv - Java虚拟环境管理");
                     println!("");
                     println!("使用方法:");
-                    println!("  jx venv create [NAME] [--java-version VERSION] [--maven-version VERSION] [--gradle-version VERSION]");
+                    println!("  jx venv create [NAME] [--java-version VERSION] [--maven-version VERSION | --gradle-version VERSION]");
                     println!("  jx venv activate [NAME]");
                     println!("  jx venv deactivate");
                     println!("  jx venv list");

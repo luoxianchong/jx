@@ -64,6 +64,7 @@ struct DependencyResult {
     artifact_id: String,
     version: String,
     description: Option<String>,
+    #[allow(dead_code)]
     source: String,
 }
 

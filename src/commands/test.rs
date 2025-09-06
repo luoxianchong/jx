@@ -46,6 +46,7 @@ struct TestConfig {
     main_class: Option<String>,
     test_class: Option<String>,
     java_version: Option<String>,
+    #[allow(dead_code)]
     dependencies: Vec<String>,
 }
 
@@ -250,7 +251,7 @@ fn display_test_info(config: &TestConfig, test_class: &Option<String>, method: &
 
 fn run_maven_tests(
     project_dir: &Path, 
-    config: &TestConfig, 
+    _config: &TestConfig, 
     test_class: &Option<String>, 
     method: &Option<String>
 ) -> Result<()> {
@@ -386,7 +387,7 @@ fn run_gradle_tests(
 
 fn run_jx_tests(
     project_dir: &Path, 
-    _config: &TestConfig, 
+    config: &TestConfig, 
     test_class: &Option<String>, 
     method: &Option<String>
 ) -> Result<()> {
@@ -397,11 +398,11 @@ fn run_jx_tests(
     let jx_content = fs::read_to_string(&jx_path)?;
     
     if jx_content.contains("type = \"maven\"") {
-        run_maven_tests(project_dir, _config, test_class, method)
+        run_maven_tests(project_dir, config, test_class, method)
     } else if jx_content.contains("type = \"gradle\"") {
-        run_gradle_tests(project_dir, _config, test_class, method)
+        run_gradle_tests(project_dir, config, test_class, method)
     } else {
-        run_generic_tests(project_dir, _config, test_class, method)
+        run_generic_tests(project_dir, config, test_class, method)
     }
 }
 

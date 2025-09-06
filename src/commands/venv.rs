@@ -3,17 +3,80 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::env;
+use serde::Deserialize;
+use crate::utils::{calculate_directory_size, format_file_size};
+
+// Adoptium API 数据结构
+#[derive(Debug, Deserialize)]
+struct AdoptiumBinary {
+    architecture: String,
+    os: String,
+    image_type: String,
+    package: AdoptiumPackage,
+}
+
+#[derive(Debug, Deserialize)]
+struct AdoptiumPackage {
+    name: String,
+    link: String,
+    #[allow(dead_code)]
+    size: u64,
+    #[allow(dead_code)]
+    download_count: u64,
+    #[allow(dead_code)]
+    checksum: Option<String>,
+    #[allow(dead_code)]
+    signature_link: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AdoptiumRelease {
+    binary: AdoptiumBinary,
+    #[allow(dead_code)]
+    release_name: String,
+    #[allow(dead_code)]
+    release_link: String,
+    #[allow(dead_code)]
+    vendor: String,
+    #[allow(dead_code)]
+    version: AdoptiumVersion,
+}
+
+#[derive(Debug, Deserialize)]
+struct AdoptiumVersion {
+    #[allow(dead_code)]
+    major: u8,
+    #[allow(dead_code)]
+    minor: u8,
+    #[allow(dead_code)]
+    security: u8,
+    #[allow(dead_code)]
+    build: u8,
+    #[allow(dead_code)]
+    openjdk_version: String,
+    #[allow(dead_code)]
+    semver: String,
+}
+
+/// 构建工具类型
+#[derive(Debug, Clone)]
+pub enum BuildTool {
+    Maven(String),
+    Gradle(String),
+}
 
 /// 创建Java虚拟环境
-pub fn create(name: Option<String>, java_version: String, maven_version: String, gradle_version: String) -> Result<()> {
+pub fn create(name: Option<String>, java_version: String, build_tool: BuildTool) -> Result<()> {
     let venv_name = name.unwrap_or_else(|| "default".to_string());
     let venv_dir = get_venv_directory(&venv_name)?;
     
     println!("🌱 创建Java虚拟环境...");
     println!("名称: {}", venv_name);
     println!("Java版本: {}", java_version);
-    println!("Maven版本: {}", maven_version);
-    println!("Gradle版本: {}", gradle_version);
+    match &build_tool {
+        BuildTool::Maven(version) => println!("Maven版本: {}", version),
+        BuildTool::Gradle(version) => println!("Gradle版本: {}", version),
+    }
     
     // 检查虚拟环境是否已存在
     if venv_dir.exists() {
@@ -28,19 +91,23 @@ pub fn create(name: Option<String>, java_version: String, maven_version: String,
     fs::create_dir_all(venv_dir.join("cache"))?;
     
     // 创建虚拟环境配置文件
-    create_venv_config(&venv_dir, &java_version, &maven_version, &gradle_version)?;
+    create_venv_config(&venv_dir, &java_version, &build_tool)?;
     
     // 下载并安装Java
     install_java(&venv_dir, &java_version)?;
     
-    // 下载并安装Maven
-    install_maven(&venv_dir, &maven_version)?;
-    
-    // 下载并安装Gradle
-    install_gradle(&venv_dir, &gradle_version)?;
+    // 根据构建工具类型安装相应的构建工具
+    match &build_tool {
+        BuildTool::Maven(version) => {
+            install_maven(&venv_dir, version)?;
+        }
+        BuildTool::Gradle(version) => {
+            install_gradle(&venv_dir, version)?;
+        }
+    }
     
     // 创建激活脚本
-    create_activation_scripts(&venv_dir, &venv_name)?;
+    create_activation_scripts(&venv_dir, &venv_name, &build_tool)?;
     
     println!("✅ 虚拟环境 '{}' 创建成功!", venv_name);
     println!("路径: {}", venv_dir.display());
@@ -67,17 +134,22 @@ pub fn activate(name: Option<String>) -> Result<()> {
     
     // 设置环境变量
     let bin_path = venv_dir.join("bin");
-    let lib_path = venv_dir.join("lib");
     
     // 获取当前PATH
     let current_path = env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", bin_path.display(), current_path);
+    let _new_path = format!("{}:{}", bin_path.display(), current_path);
     
     // 设置JAVA_HOME
     let java_home = venv_dir.join("lib").join("java");
     if java_home.exists() {
-        env::set_var("JAVA_HOME", java_home.clone());
-        println!("设置 JAVA_HOME: {}", java_home.display());
+        // 检查是否是macOS结构
+        let java_home_path = if java_home.join("jdk").join("Contents").join("Home").exists() {
+            java_home.join("jdk").join("Contents").join("Home")
+        } else {
+            java_home.join("jdk")
+        };
+        env::set_var("JAVA_HOME", java_home_path.clone());
+        println!("设置 JAVA_HOME: {}", java_home_path.display());
     }
     
     // 设置MAVEN_HOME
@@ -158,20 +230,33 @@ pub fn list() -> Result<()> {
             if config_file.exists() {
                 if let Ok(config_content) = fs::read_to_string(&config_file) {
                     let mut java_version = "未知".to_string();
-                    let mut maven_version = "未知".to_string();
-                    let mut gradle_version = "未知".to_string();
+
+                    let mut build_tool_info = "未知".to_string();
                     
                     for line in config_content.lines() {
                         if line.starts_with("java_version = \"") {
                             java_version = line.trim_start_matches("java_version = \"").trim_end_matches("\"").to_string();
-                        } else if line.starts_with("maven_version = \"") {
-                            maven_version = line.trim_start_matches("maven_version = \"").trim_end_matches("\"").to_string();
-                        } else if line.starts_with("gradle_version = \"") {
-                            gradle_version = line.trim_start_matches("gradle_version = \"").trim_end_matches("\"").to_string();
+                        } else if line.starts_with("build_tool = \"") {
+                            let tool_type = line.trim_start_matches("build_tool = \"").trim_end_matches("\"").to_string();
+                            if tool_type == "maven" {
+                                build_tool_info = format!("Maven: {}", 
+                                    config_content.lines()
+                                        .find(|l| l.starts_with("build_tool_version = \""))
+                                        .map(|l| l.trim_start_matches("build_tool_version = \"").trim_end_matches("\""))
+                                        .unwrap_or("未知")
+                                );
+                            } else if tool_type == "gradle" {
+                                build_tool_info = format!("Gradle: {}", 
+                                    config_content.lines()
+                                        .find(|l| l.starts_with("build_tool_version = \""))
+                                        .map(|l| l.trim_start_matches("build_tool_version = \"").trim_end_matches("\""))
+                                        .unwrap_or("未知")
+                                );
+                            }
                         }
                     }
                     
-                    venvs.push((name.to_string(), java_version, maven_version, gradle_version));
+                    venvs.push((name.to_string(), java_version, build_tool_info));
                 }
             }
         }
@@ -183,13 +268,13 @@ pub fn list() -> Result<()> {
         // 检查当前激活的虚拟环境
         let active_venv = get_active_venv()?;
         
-        for (name, java, maven, gradle) in venvs {
+        for (name, java, build_tool) in venvs {
             let status = if active_venv.as_ref().map(|s| s == &name).unwrap_or(false) {
                 "🔌 激活"
             } else {
                 "   "
             };
-            println!("{} {} (Java: {}, Maven: {}, Gradle: {})", status, name, java, maven, gradle);
+            println!("{} {} (Java: {}, {})", status, name, java, build_tool);
         }
     }
     
@@ -289,6 +374,84 @@ fn get_jx_home() -> Result<PathBuf> {
     Ok(jx_home)
 }
 
+fn get_cache_directory() -> Result<PathBuf> {
+    let jx_home = get_jx_home()?;
+    let cache_dir = jx_home.join("cache");
+    fs::create_dir_all(&cache_dir)?;
+    Ok(cache_dir)
+}
+
+fn copy_directory(src: &Path, dst: &Path) -> Result<()> {
+    if dst.exists() {
+        fs::remove_dir_all(dst)?;
+    }
+    fs::create_dir_all(dst.parent().unwrap())?;
+    
+    // 使用cp命令递归复制目录
+    let output = Command::new("cp")
+        .args(&["-R", src.to_str().unwrap(), dst.to_str().unwrap()])
+        .output()
+        .context("复制目录失败")?;
+    
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("复制目录失败: {}", error));
+    }
+    
+    Ok(())
+}
+
+fn rename_extracted_java(extract_dir: &Path, target_dir: &Path) -> Result<()> {
+    // 查找解压后的JDK目录
+    for entry in fs::read_dir(extract_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && path.file_name().unwrap().to_str().unwrap().starts_with("jdk") {
+            if target_dir.exists() {
+                fs::remove_dir_all(target_dir)?;
+            }
+            fs::rename(path, target_dir)?;
+            return Ok(());
+        }
+    }
+    
+    Err(anyhow::anyhow!("未找到解压后的JDK目录"))
+}
+
+fn rename_extracted_maven(extract_dir: &Path, target_dir: &Path) -> Result<()> {
+    // 查找解压后的Maven目录
+    for entry in fs::read_dir(extract_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && path.file_name().unwrap().to_str().unwrap().starts_with("apache-maven") {
+            if target_dir.exists() {
+                fs::remove_dir_all(target_dir)?;
+            }
+            fs::rename(path, target_dir)?;
+            return Ok(());
+        }
+    }
+    
+    Err(anyhow::anyhow!("未找到解压后的Maven目录"))
+}
+
+fn rename_extracted_gradle(extract_dir: &Path, target_dir: &Path) -> Result<()> {
+    // 查找解压后的Gradle目录
+    for entry in fs::read_dir(extract_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && path.file_name().unwrap().to_str().unwrap().starts_with("gradle-") {
+            if target_dir.exists() {
+                fs::remove_dir_all(target_dir)?;
+            }
+            fs::rename(path, target_dir)?;
+            return Ok(());
+        }
+    }
+    
+    Err(anyhow::anyhow!("未找到解压后的Gradle目录"))
+}
+
 fn get_venv_base_directory() -> Result<PathBuf> {
     let jx_home = get_jx_home()?;
     let venv_base = jx_home.join("venvs");
@@ -311,13 +474,18 @@ fn get_active_venv() -> Result<Option<String>> {
     }
 }
 
-fn create_venv_config(venv_dir: &Path, java_version: &str, maven_version: &str, gradle_version: &str) -> Result<()> {
+fn create_venv_config(venv_dir: &Path, java_version: &str, build_tool: &BuildTool) -> Result<()> {
+    let (tool_type, tool_version) = match build_tool {
+        BuildTool::Maven(version) => ("maven", version),
+        BuildTool::Gradle(version) => ("gradle", version),
+    };
+    
     let config_content = format!(
         r#"# jx虚拟环境配置文件
 # 创建时间: {}
 java_version = "{}"
-maven_version = "{}"
-gradle_version = "{}"
+build_tool = "{}"
+build_tool_version = "{}"
 
 [paths]
 bin = "bin"
@@ -327,8 +495,8 @@ cache = "cache"
 "#,
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
         java_version,
-        maven_version,
-        gradle_version
+        tool_type,
+        tool_version
     );
     
     let config_file = venv_dir.join("conf").join("venv.toml");
@@ -344,7 +512,7 @@ fn install_java(venv_dir: &Path, version: &str) -> Result<()> {
     fs::create_dir_all(&java_dir)?;
     
     // 检查是否已经安装了指定版本的Java
-    let java_bin = java_dir.join("jdk").join("bin").join("java");
+    let java_bin = get_java_executable_path(&java_dir);
     if java_bin.exists() {
         // 检查版本
         if let Ok(output) = Command::new(&java_bin).arg("-version").output() {
@@ -362,20 +530,42 @@ fn install_java(venv_dir: &Path, version: &str) -> Result<()> {
     
     // 构建下载URL
     let download_url = build_java_download_url(major_version, &arch, &os)?;
-    let filename = get_java_filename(major_version, &arch, &os)?;
+    let filename = get_java_filename_from_url(&download_url)?;
     
-    println!("🌐 从 {} 下载Java...", download_url);
+    // 检查缓存目录
+    let cache_dir = get_cache_directory()?;
+    let java_cache_dir = cache_dir.join("java");
+    fs::create_dir_all(&java_cache_dir)?;
+    let cached_archive = java_cache_dir.join(&filename);
+    let cached_extracted = java_cache_dir.join(format!("jdk-{}-{}-{}", major_version, os, arch));
     
+    // 如果缓存中已存在解压后的目录，直接复制
+    if cached_extracted.exists() {
+        println!("📋 从缓存复制Java {}...", major_version);
+        copy_directory(&cached_extracted, &java_dir.join("jdk"))?;
+    } else {
+        // 检查是否有缓存的压缩包
+        if cached_archive.exists() {
+            println!("📋 从缓存解压Java {}...", major_version);
+            extract_java_archive(&cached_archive, &java_cache_dir, &filename)?;
+            // 重命名解压后的目录
+            rename_extracted_java(&java_cache_dir, &cached_extracted)?;
+            // 复制到目标目录
+            copy_directory(&cached_extracted, &java_dir.join("jdk"))?;
+        } else {
     // 下载Java
-    let temp_dir = std::env::temp_dir().join("jx_java_download");
-    fs::create_dir_all(&temp_dir)?;
-    let download_path = temp_dir.join(&filename);
-    
-    download_file(&download_url, &download_path)?;
-    
-    // 解压Java
-    println!("📦 解压Java...");
-    extract_java_archive(&download_path, &java_dir, &filename)?;
+            println!("🌐 从 {} 下载Java...", download_url);
+            download_file(&download_url, &cached_archive)?;
+            
+            // 解压到缓存目录
+            println!("📦 解压Java到缓存...");
+            extract_java_archive(&cached_archive, &java_cache_dir, &filename)?;
+            // 重命名解压后的目录
+            rename_extracted_java(&java_cache_dir, &cached_extracted)?;
+            // 复制到目标目录
+            copy_directory(&cached_extracted, &java_dir.join("jdk"))?;
+        }
+    }
     
     // 设置执行权限
     set_java_permissions(&java_dir)?;
@@ -385,6 +575,7 @@ fn install_java(venv_dir: &Path, version: &str) -> Result<()> {
     create_java_symlinks(&java_dir, &bin_dir)?;
     
     // 验证安装
+    let java_bin = get_java_executable_path(&java_dir);
     if let Ok(output) = Command::new(&java_bin).arg("-version").output() {
         let version_output = String::from_utf8_lossy(&output.stderr);
         println!("✅ Java安装成功!");
@@ -393,17 +584,33 @@ fn install_java(venv_dir: &Path, version: &str) -> Result<()> {
         return Err(anyhow::anyhow!("Java安装验证失败"));
     }
     
-    // 清理临时文件
-    if temp_dir.exists() {
-        fs::remove_dir_all(temp_dir)?;
-    }
+    // 缓存文件保留，无需清理
     
     Ok(())
 }
 
 fn parse_java_version(version: &str) -> Result<(u8, String)> {
-    let major_version = version.parse::<u8>()
-        .map_err(|_| anyhow::anyhow!("无效的Java版本: {}", version))?;
+    // 支持多种版本格式：8, 11, 17, 21, 1.8, 11.0, 17.0, 21.0等
+    let major_version = if version.starts_with("1.") {
+        // 处理1.x格式（如1.8）
+        let minor = version.strip_prefix("1.").unwrap();
+        minor.parse::<u8>()
+            .map_err(|_| anyhow::anyhow!("无效的Java版本: {}", version))?
+    } else if version.contains('.') {
+        // 处理x.y格式（如11.0, 17.0）
+        let major = version.split('.').next().unwrap();
+        major.parse::<u8>()
+            .map_err(|_| anyhow::anyhow!("无效的Java版本: {}", version))?
+    } else {
+        // 处理单个数字格式（如8, 11, 17, 21）
+        version.parse::<u8>()
+            .map_err(|_| anyhow::anyhow!("无效的Java版本: {}", version))?
+    };
+    
+    // 验证版本是否支持
+    if major_version < 8 || major_version > 25 {
+        return Err(anyhow::anyhow!("不支持的Java版本: {} (支持范围: 8-25)", major_version));
+    }
     
     // 获取系统架构
     let arch = if cfg!(target_arch = "x86_64") {
@@ -433,56 +640,99 @@ fn get_os_type() -> Result<String> {
     Ok(os)
 }
 
-fn build_java_download_url(major_version: u8, arch: &str, os: &str) -> Result<String> {
-    // 使用Adoptium (Eclipse Temurin) 作为Java发行版
-    let base_url = "https://github.com/adoptium/temurin8-binaries/releases/download";
+fn get_java_executable_path(java_dir: &Path) -> PathBuf {
+    let jdk_dir = java_dir.join("jdk");
     
-    let version_tag = match major_version {
-        8 => "jdk8u392-b08",
-        11 => "jdk-11.0.21+9",
-        17 => "jdk-17.0.9+9",
-        21 => "jdk-21.0.1+12",
-        _ => return Err(anyhow::anyhow!("不支持的Java版本: {}", major_version)),
-    };
+    // 检查macOS结构 (Contents/Home/bin/java)
+    let macos_java = jdk_dir.join("Contents").join("Home").join("bin").join("java");
+    if macos_java.exists() {
+        return macos_java;
+    }
     
-    let os_arch = match (os, arch) {
-        ("linux", "x64") => "linux-x64",
-        ("linux", "aarch64") => "linux-aarch64",
-        ("linux", "arm") => "linux-arm",
-        ("mac", "x64") => "macosx-x64",
-        ("mac", "aarch64") => "macosx-aarch64",
-        ("windows", "x64") => "windows-x64",
-        ("windows", "aarch64") => "windows-aarch64",
-        _ => return Err(anyhow::anyhow!("不支持的OS-架构组合: {}-{}", os, arch)),
-    };
+    // 检查标准结构 (jdk/bin/java)
+    let standard_java = jdk_dir.join("bin").join("java");
+    if standard_java.exists() {
+        return standard_java;
+    }
     
-    let extension = if os == "windows" { "zip" } else { "tar.gz" };
-    
-    // 修复URL格式：移除重复的版本号
-    let url = format!(
-        "{}/{}/OpenJDK{}U-{}.{}",
-        base_url, version_tag, major_version, os_arch, extension
-    );
-    
-    Ok(url)
+    // 默认返回标准结构
+    standard_java
 }
 
-fn get_java_filename(major_version: u8, arch: &str, os: &str) -> Result<String> {
-    let os_arch = match (os, arch) {
-        ("linux", "x64") => "linux-x64",
-        ("linux", "aarch64") => "linux-aarch64",
-        ("linux", "arm") => "linux-arm",
-        ("mac", "x64") => "macosx-x64",
-        ("mac", "aarch64") => "macosx-aarch64",
-        ("windows", "x64") => "windows-x64",
-        ("windows", "aarch64") => "windows-aarch64",
-        _ => return Err(anyhow::anyhow!("不支持的OS-架构组合: {}-{}", os, arch)),
-    };
+fn get_adoptium_releases(version: u8) -> Result<Vec<AdoptiumRelease>> {
+    let url = format!("https://api.adoptium.net/v3/assets/latest/{}/hotspot", version);
     
-    let extension = if os == "windows" { "zip" } else { "tar.gz" };
-    let filename = format!("OpenJDK{}U-{}.{}", major_version, os_arch, extension);
+    // 使用curl命令获取API响应
+    let output = Command::new("curl")
+        .args(&["-s", "-H", "User-Agent: jx/0.1.0", &url])
+        .output()
+        .context("执行curl命令失败")?;
     
-    Ok(filename)
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("Adoptium API请求失败: {}", error));
+    }
+    
+    let response_text = String::from_utf8_lossy(&output.stdout);
+    let adoptium_releases: Vec<AdoptiumRelease> = serde_json::from_str(&response_text)
+        .context("解析Adoptium API响应失败")?;
+    
+    Ok(adoptium_releases)
+}
+
+fn build_java_download_url(major_version: u8, arch: &str, os: &str) -> Result<String> {
+    // 获取Adoptium API数据
+    let releases = get_adoptium_releases(major_version)?;
+    
+    if releases.is_empty() {
+        return Err(anyhow::anyhow!("未找到Java {}的可用版本", major_version));
+    }
+    
+    // 查找匹配的发布版本
+    for release in &releases {
+        let binary = &release.binary;
+        
+        // 检查操作系统和架构是否匹配
+        let os_match = match (os, binary.os.as_str()) {
+            ("linux", "linux") => true,
+            ("mac", "mac") => true,
+            ("windows", "windows") => true,
+            _ => false,
+        };
+        
+        let arch_match = match (arch, binary.architecture.as_str()) {
+            ("x64", "x64") => true,
+            ("aarch64", "aarch64") => true,
+            ("arm", "arm") => true,
+            _ => false,
+        };
+        
+        // 检查是否是JDK包（不是JRE）
+        let is_jdk = binary.image_type == "jdk";
+        
+        if os_match && arch_match && is_jdk {
+            // 根据操作系统选择正确的文件扩展名
+            let expected_extension = if os == "windows" { "zip" } else { "tar.gz" };
+            if binary.package.name.ends_with(expected_extension) {
+                return Ok(binary.package.link.clone());
+            }
+        }
+    }
+    
+    Err(anyhow::anyhow!("未找到适合 {}-{} 的Java {}下载链接", os, arch, major_version))
+}
+
+fn get_java_filename_from_url(url: &str) -> Result<String> {
+    // 从URL中提取文件名
+    if let Some(last_slash) = url.rfind('/') {
+        let filename = &url[last_slash + 1..];
+        // 解码URL编码的字符
+        let decoded = urlencoding::decode(filename)
+            .map_err(|e| anyhow::anyhow!("URL解码失败: {}", e))?;
+        Ok(decoded.to_string())
+    } else {
+        Err(anyhow::anyhow!("无法从URL中提取文件名: {}", url))
+    }
 }
 
 fn download_file(url: &str, path: &Path) -> Result<()> {
@@ -583,11 +833,18 @@ fn set_java_permissions(java_dir: &Path) -> Result<()> {
 }
 
 fn create_java_symlinks(java_dir: &Path, bin_dir: &Path) -> Result<()> {
-    let jdk_bin = java_dir.join("jdk").join("bin");
+    let jdk_dir = java_dir.join("jdk");
     
-    if !jdk_bin.exists() {
+    // 查找Java bin目录
+    let jdk_bin = if jdk_dir.join("Contents").join("Home").join("bin").exists() {
+        // macOS结构
+        jdk_dir.join("Contents").join("Home").join("bin")
+    } else if jdk_dir.join("bin").exists() {
+        // 标准结构
+        jdk_dir.join("bin")
+    } else {
         return Err(anyhow::anyhow!("Java bin目录不存在"));
-    }
+    };
     
     // 创建常用Java命令的符号链接
     let java_commands = ["java", "javac", "javadoc", "jar", "keytool"];
@@ -624,7 +881,8 @@ fn install_maven(venv_dir: &Path, version: &str) -> Result<()> {
     fs::create_dir_all(&maven_dir)?;
     
     // 检查是否已经安装了指定版本的Maven
-    let mvn_bin = maven_dir.join("apache-maven").join("bin").join("mvn");
+    let maven_version_dir = maven_dir.join(format!("apache-maven-{}", version));
+    let mvn_bin = maven_version_dir.join("bin").join("mvn");
     if mvn_bin.exists() {
         if let Ok(output) = Command::new(&mvn_bin).arg("--version").output() {
             let version_output = String::from_utf8_lossy(&output.stdout);
@@ -641,26 +899,58 @@ fn install_maven(venv_dir: &Path, version: &str) -> Result<()> {
         version, version
     );
     
-    println!("🌐 从 {} 下载Maven...", download_url);
-    
-    // 下载Maven
-    let temp_dir = std::env::temp_dir().join("jx_maven_download");
-    fs::create_dir_all(&temp_dir)?;
+    // 检查缓存目录
+    let cache_dir = get_cache_directory()?;
+    let maven_cache_dir = cache_dir.join("maven");
+    fs::create_dir_all(&maven_cache_dir)?;
     let filename = format!("apache-maven-{}-bin.tar.gz", version);
-    let download_path = temp_dir.join(&filename);
+    let cached_archive = maven_cache_dir.join(&filename);
+    let cached_extracted = maven_cache_dir.join(format!("apache-maven-{}", version));
     
-    download_file(&download_url, &download_path)?;
-    
-    // 解压Maven
-    println!("📦 解压Maven...");
+    // 如果缓存中已存在解压后的目录，直接复制
+    if cached_extracted.exists() {
+        println!("📋 从缓存复制Maven {}...", version);
+        copy_directory(&cached_extracted, &maven_dir.join(format!("apache-maven-{}", version)))?;
+    } else {
+        // 检查是否有缓存的压缩包
+        if cached_archive.exists() {
+            println!("📋 从缓存解压Maven {}...", version);
+            let output = Command::new("tar")
+                .args(&["-xzf", cached_archive.to_str().unwrap(), "-C", maven_cache_dir.to_str().unwrap()])
+                .output()
+                .context("解压Maven失败")?;
+            
+            if !output.status.success() {
+                let error = String::from_utf8_lossy(&output.stderr);
+                return Err(anyhow::anyhow!("解压Maven失败: {}", error));
+            }
+            
+            // 重命名解压后的目录
+            rename_extracted_maven(&maven_cache_dir, &cached_extracted)?;
+            // 复制到目标目录
+            copy_directory(&cached_extracted, &maven_dir.join(format!("apache-maven-{}", version)))?;
+        } else {
+            // 下载Maven
+            println!("🌐 从 {} 下载Maven...", download_url);
+            download_file(&download_url, &cached_archive)?;
+            
+            // 解压到缓存目录
+            println!("📦 解压Maven到缓存...");
     let output = Command::new("tar")
-        .args(&["-xzf", download_path.to_str().unwrap(), "-C", maven_dir.to_str().unwrap()])
+                .args(&["-xzf", cached_archive.to_str().unwrap(), "-C", maven_cache_dir.to_str().unwrap()])
         .output()
         .context("解压Maven失败")?;
     
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow::anyhow!("解压Maven失败: {}", error));
+            }
+            
+            // 重命名解压后的目录
+            rename_extracted_maven(&maven_cache_dir, &cached_extracted)?;
+            // 复制到目标目录
+            copy_directory(&cached_extracted, &maven_dir.join(format!("apache-maven-{}", version)))?;
+        }
     }
     
     // 设置执行权限
@@ -671,6 +961,8 @@ fn install_maven(venv_dir: &Path, version: &str) -> Result<()> {
     create_maven_symlinks(&maven_dir, &bin_dir)?;
     
     // 验证安装
+    let maven_version_dir = maven_dir.join(format!("apache-maven-{}", version));
+    let mvn_bin = maven_version_dir.join("bin").join("mvn");
     if let Ok(output) = Command::new(&mvn_bin).arg("--version").output() {
         let version_output = String::from_utf8_lossy(&output.stdout);
         println!("✅ Maven安装成功!");
@@ -679,10 +971,7 @@ fn install_maven(venv_dir: &Path, version: &str) -> Result<()> {
         return Err(anyhow::anyhow!("Maven安装验证失败"));
     }
     
-    // 清理临时文件
-    if temp_dir.exists() {
-        fs::remove_dir_all(temp_dir)?;
-    }
+    // 缓存文件保留，无需清理
     
     Ok(())
 }
@@ -710,11 +999,23 @@ fn set_maven_permissions(maven_dir: &Path) -> Result<()> {
 }
 
 fn create_maven_symlinks(maven_dir: &Path, bin_dir: &Path) -> Result<()> {
-    let maven_bin = maven_dir.join("apache-maven").join("bin");
+    // 查找Maven bin目录
+    let mut maven_bin = None;
     
-    if !maven_bin.exists() {
-        return Err(anyhow::anyhow!("Maven bin目录不存在"));
+    // 查找apache-maven-*目录
+    for entry in fs::read_dir(maven_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && path.file_name().unwrap().to_str().unwrap().starts_with("apache-maven") {
+            let bin_path = path.join("bin");
+            if bin_path.exists() {
+                maven_bin = Some(bin_path);
+                break;
+            }
+        }
     }
+    
+    let maven_bin = maven_bin.ok_or_else(|| anyhow::anyhow!("Maven bin目录不存在"))?;
     
     // 创建常用Maven命令的符号链接
     let maven_commands = ["mvn"];
@@ -751,7 +1052,8 @@ fn install_gradle(venv_dir: &Path, version: &str) -> Result<()> {
     fs::create_dir_all(&gradle_dir)?;
     
     // 检查是否已经安装了指定版本的Gradle
-    let gradle_bin = gradle_dir.join("gradle").join("bin").join("gradle");
+    let gradle_version_dir = gradle_dir.join(format!("gradle-{}", version));
+    let gradle_bin = gradle_version_dir.join("bin").join("gradle");
     if gradle_bin.exists() {
         if let Ok(output) = Command::new(&gradle_bin).arg("--version").output() {
             let version_output = String::from_utf8_lossy(&output.stdout);
@@ -768,26 +1070,58 @@ fn install_gradle(venv_dir: &Path, version: &str) -> Result<()> {
         version
     );
     
-    println!("🌐 从 {} 下载Gradle...", download_url);
-    
-    // 下载Gradle
-    let temp_dir = std::env::temp_dir().join("jx_gradle_download");
-    fs::create_dir_all(&temp_dir)?;
+    // 检查缓存目录
+    let cache_dir = get_cache_directory()?;
+    let gradle_cache_dir = cache_dir.join("gradle");
+    fs::create_dir_all(&gradle_cache_dir)?;
     let filename = format!("gradle-{}-bin.zip", version);
-    let download_path = temp_dir.join(&filename);
+    let cached_archive = gradle_cache_dir.join(&filename);
+    let cached_extracted = gradle_cache_dir.join(format!("gradle-{}", version));
     
-    download_file(&download_url, &download_path)?;
-    
-    // 解压Gradle
-    println!("📦 解压Gradle...");
+    // 如果缓存中已存在解压后的目录，直接复制
+    if cached_extracted.exists() {
+        println!("📋 从缓存复制Gradle {}...", version);
+        copy_directory(&cached_extracted, &gradle_dir.join(format!("gradle-{}", version)))?;
+    } else {
+        // 检查是否有缓存的压缩包
+        if cached_archive.exists() {
+            println!("📋 从缓存解压Gradle {}...", version);
+            let output = Command::new("unzip")
+                .args(&["-q", cached_archive.to_str().unwrap(), "-d", gradle_cache_dir.to_str().unwrap()])
+                .output()
+                .context("解压Gradle失败")?;
+            
+            if !output.status.success() {
+                let error = String::from_utf8_lossy(&output.stderr);
+                return Err(anyhow::anyhow!("解压Gradle失败: {}", error));
+            }
+            
+            // 重命名解压后的目录
+            rename_extracted_gradle(&gradle_cache_dir, &cached_extracted)?;
+            // 复制到目标目录
+            copy_directory(&cached_extracted, &gradle_dir.join(format!("gradle-{}", version)))?;
+        } else {
+            // 下载Gradle
+            println!("🌐 从 {} 下载Gradle...", download_url);
+            download_file(&download_url, &cached_archive)?;
+            
+            // 解压到缓存目录
+            println!("📦 解压Gradle到缓存...");
     let output = Command::new("unzip")
-        .args(&["-q", download_path.to_str().unwrap(), "-d", gradle_dir.to_str().unwrap()])
+                .args(&["-q", cached_archive.to_str().unwrap(), "-d", gradle_cache_dir.to_str().unwrap()])
         .output()
         .context("解压Gradle失败")?;
     
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow::anyhow!("解压Gradle失败: {}", error));
+            }
+            
+            // 重命名解压后的目录
+            rename_extracted_gradle(&gradle_cache_dir, &cached_extracted)?;
+            // 复制到目标目录
+            copy_directory(&cached_extracted, &gradle_dir.join(format!("gradle-{}", version)))?;
+        }
     }
     
     // 设置执行权限
@@ -798,6 +1132,8 @@ fn install_gradle(venv_dir: &Path, version: &str) -> Result<()> {
     create_gradle_symlinks(&gradle_dir, &bin_dir)?;
     
     // 验证安装
+    let gradle_version_dir = gradle_dir.join(format!("gradle-{}", version));
+    let gradle_bin = gradle_version_dir.join("bin").join("gradle");
     if let Ok(output) = Command::new(&gradle_bin).arg("--version").output() {
         let version_output = String::from_utf8_lossy(&output.stdout);
         println!("✅ Gradle安装成功!");
@@ -806,10 +1142,7 @@ fn install_gradle(venv_dir: &Path, version: &str) -> Result<()> {
         return Err(anyhow::anyhow!("Gradle安装验证失败"));
     }
     
-    // 清理临时文件
-    if temp_dir.exists() {
-        fs::remove_dir_all(temp_dir)?;
-    }
+    // 缓存文件保留，无需清理
     
     Ok(())
 }
@@ -837,11 +1170,23 @@ fn set_gradle_permissions(gradle_dir: &Path) -> Result<()> {
 }
 
 fn create_gradle_symlinks(gradle_dir: &Path, bin_dir: &Path) -> Result<()> {
-    let gradle_bin = gradle_dir.join("gradle").join("bin").join("gradle");
+    // 查找Gradle bin目录
+    let mut gradle_bin = None;
     
-    if !gradle_bin.exists() {
-        return Err(anyhow::anyhow!("Gradle bin目录不存在"));
+    // 查找gradle-*目录
+    for entry in fs::read_dir(gradle_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && path.file_name().unwrap().to_str().unwrap().starts_with("gradle-") {
+            let bin_path = path.join("bin");
+            if bin_path.exists() {
+                gradle_bin = Some(bin_path);
+                break;
+            }
+        }
     }
+    
+    let gradle_bin = gradle_bin.ok_or_else(|| anyhow::anyhow!("Gradle bin目录不存在"))?;
     
     // 创建常用Gradle命令的符号链接
     let gradle_commands = ["gradle"];
@@ -871,7 +1216,21 @@ fn create_gradle_symlinks(gradle_dir: &Path, bin_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn create_activation_scripts(venv_dir: &Path, name: &str) -> Result<()> {
+fn create_activation_scripts(venv_dir: &Path, name: &str, build_tool: &BuildTool) -> Result<()> {
+    // 根据构建工具类型生成不同的激活脚本
+    let (tool_home_var, tool_home_path, tool_display) = match build_tool {
+        BuildTool::Maven(version) => (
+            "MAVEN_HOME",
+            format!("{}/lib/maven", venv_dir.display()),
+            format!("Maven: {}", version)
+        ),
+        BuildTool::Gradle(version) => (
+            "GRADLE_HOME", 
+            format!("{}/lib/gradle", venv_dir.display()),
+            format!("Gradle: {}", version)
+        ),
+    };
+
     // 创建bash激活脚本
     let bash_script = format!(
         r#"#!/bin/bash
@@ -880,22 +1239,21 @@ export JX_VENV_NAME="{}"
 export JX_VENV_PATH="{}"
 
 # 设置Java环境
-export JAVA_HOME="{}/lib/java"
+if [ -d "{}/lib/java/jdk/Contents/Home" ]; then
+    export JAVA_HOME="{}/lib/java/jdk/Contents/Home"
+else
+    export JAVA_HOME="{}/lib/java/jdk"
+fi
 export PATH="{}/bin:$PATH"
 
-# 设置Maven环境
-export MAVEN_HOME="{}/lib/maven"
-export PATH="{}/bin:$PATH"
-
-# 设置Gradle环境
-export GRADLE_HOME="{}/lib/gradle"
+# 设置{}环境
+export {}="{}"
 export PATH="{}/bin:$PATH"
 
 # 显示激活信息
 echo "🔌 虚拟环境 '{}' 已激活"
 echo "Java: $JAVA_HOME"
-echo "Maven: $MAVEN_HOME"
-echo "Gradle: $GRADLE_HOME"
+echo "{}: ${}"
 echo ""
 echo "停用虚拟环境: deactivate"
 
@@ -904,8 +1262,7 @@ deactivate() {{
     unset JX_VENV_NAME
     unset JX_VENV_PATH
     unset JAVA_HOME
-    unset MAVEN_HOME
-    unset GRADLE_HOME
+    unset {}
     echo "🔌 虚拟环境 '{}' 已停用"
 }}
 "#,
@@ -916,9 +1273,14 @@ deactivate() {{
         venv_dir.display(),
         venv_dir.display(),
         venv_dir.display(),
-        venv_dir.display(),
+        tool_display,
+        tool_home_var,
+        tool_home_path,
         venv_dir.display(),
         name,
+        tool_display,
+        tool_home_var,
+        tool_home_var,
         name
     );
     
@@ -933,137 +1295,6 @@ deactivate() {{
         perms.set_mode(0o755);
         fs::set_permissions(&bash_file, perms)?;
     }
-
-
-    // 创建zsh激活脚本
-    let zsh_script = format!(
-        r#"#!/bin/zsh
-# jx虚拟环境激活脚本: {}
-export JX_VENV="{}"
-export JX_VENV_PATH="{}"
-
-# 设置Java环境
-if [ -d "$JX_VENV_PATH/lib/java" ]; then
-    export JAVA_HOME="$JX_VENV_PATH/lib/java"
-    echo "设置 JAVA_HOME: $JAVA_HOME"
-fi
-
-# 设置Maven环境
-if [ -d "$JX_VENV_PATH/lib/maven" ]; then
-    export MAVEN_HOME="$JX_VENV_PATH/lib/maven"
-    export M2_HOME="$JX_VENV_PATH/lib/maven"
-    export PATH="$MAVEN_HOME/bin:$PATH"
-    echo "设置 MAVEN_HOME: $MAVEN_HOME"
-fi
-
-# 设置Gradle环境
-if [ -d "$JX_VENV_PATH/lib/gradle" ]; then
-    export GRADLE_HOME="$JX_VENV_PATH/lib/gradle"
-    export PATH="$GRADLE_HOME/bin:$PATH"
-    echo "设置 GRADLE_HOME: $GRADLE_HOME"
-fi
-
-echo "虚拟环境 '{}' 已激活"
-echo "停用: jx venv deactivate"
-"#,
-        name, name, venv_dir.display(), name
-    );
-
-    let zsh_path = venv_dir.join("bin").join("activate.zsh");
-    fs::write(&zsh_path, zsh_script)?;
-    
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&zsh_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&zsh_path, perms)?;
-    }
-    
-    // 创建fish激活脚本
-    let fish_script = format!(
-        r#"# jx虚拟环境激活脚本 (fish): {}
-set -gx JX_VENV_NAME "{}"
-set -gx JX_VENV_PATH "{}"
-
-# 设置Java环境
-set -gx JAVA_HOME "{}/lib/java"
-set -gx PATH "{}/bin" $PATH
-
-# 设置Maven环境
-set -gx MAVEN_HOME "{}/lib/maven"
-set -gx PATH "{}/bin" $PATH
-
-# 设置Gradle环境
-set -gx GRADLE_HOME "{}/lib/gradle"
-set -gx PATH "{}/bin" $PATH
-
-# 显示激活信息
-echo "🔌 虚拟环境 '{}' 已激活"
-echo "Java: $JAVA_HOME"
-echo "Maven: $MAVEN_HOME"
-echo "Gradle: $GRADLE_HOME"
-echo ""
-echo "停用虚拟环境: deactivate"
-
-# 定义停用函数
-function deactivate
-    set -e JX_VENV_NAME
-    set -e JX_VENV_PATH
-    set -e JAVA_HOME
-    set -e MAVEN_HOME
-    set -e GRADLE_HOME
-    echo "🔌 虚拟环境 '{}' 已停用"
-end
-"#,
-        name,
-        name,
-        venv_dir.display(),
-        venv_dir.display(),
-        venv_dir.display(),
-        venv_dir.display(),
-        venv_dir.display(),
-        venv_dir.display(),
-        venv_dir.display(),
-        name,
-        name
-    );
-    
-    let fish_file = venv_dir.join("bin").join("activate.fish");
-    fs::write(&fish_file, fish_script)?;
     
     Ok(())
-}
-
-fn calculate_directory_size(dir_path: &Path) -> Result<u64> {
-    let mut total_size = 0;
-    
-    for entry in walkdir::WalkDir::new(dir_path) {
-        let entry = entry?;
-        let path = entry.path();
-        
-        if path.is_file() {
-            if let Ok(metadata) = fs::metadata(path) {
-                total_size += metadata.len();
-            }
-        }
-    }
-    
-    Ok(total_size)
-}
-
-fn format_file_size(size: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    
-    if size < KB {
-        format!("{} B", size)
-    } else if size < MB {
-        format!("{:.1} KB", size as f64 / KB as f64)
-    } else if size < GB {
-        format!("{:.1} MB", size as f64 / MB as f64)
-    } else {
-        format!("{:.1} GB", size as f64 / GB as f64)
-    }
 }
