@@ -11,7 +11,7 @@ pub struct LockFile {
     pub metadata: LockMetadata,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockedDependency {
     pub group_id: String,
     pub artifact_id: String,
@@ -62,7 +62,12 @@ impl LockFile {
         removed
     }
 
-    pub fn get_dependency(&self, group_id: &str, artifact_id: &str, version: &str) -> Option<&LockedDependency> {
+    pub fn get_dependency(
+        &self,
+        group_id: &str,
+        artifact_id: &str,
+        version: &str,
+    ) -> Option<&LockedDependency> {
         let key = format!("{}:{}:{}", group_id, artifact_id, version);
         self.dependencies.get(&key)
     }
@@ -88,7 +93,13 @@ impl LockFile {
         }
     }
 
-    pub fn update_checksum(&mut self, group_id: &str, artifact_id: &str, version: &str, checksum: &str) -> Result<()> {
+    pub fn update_checksum(
+        &mut self,
+        group_id: &str,
+        artifact_id: &str,
+        version: &str,
+        checksum: &str,
+    ) -> Result<()> {
         let key = format!("{}:{}:{}", group_id, artifact_id, version);
         if let Some(dep) = self.dependencies.get_mut(&key) {
             dep.checksum = checksum.to_string();
@@ -97,7 +108,13 @@ impl LockFile {
         Ok(())
     }
 
-    pub fn update_url(&mut self, group_id: &str, artifact_id: &str, version: &str, url: &str) -> Result<()> {
+    pub fn update_url(
+        &mut self,
+        group_id: &str,
+        artifact_id: &str,
+        version: &str,
+        url: &str,
+    ) -> Result<()> {
         let key = format!("{}:{}:{}", group_id, artifact_id, version);
         if let Some(dep) = self.dependencies.get_mut(&key) {
             dep.url = url.to_string();
@@ -120,9 +137,14 @@ impl LockFile {
         tree
     }
 
-    fn build_tree_node(&self, dep: &LockedDependency, visited: &mut HashMap<String, bool>, depth: usize) -> DependencyTreeNode {
+    fn build_tree_node(
+        &self,
+        dep: &LockedDependency,
+        visited: &mut HashMap<String, bool>,
+        depth: usize,
+    ) -> DependencyTreeNode {
         visited.insert(dep.coordinate(), true);
-        
+
         let mut node = DependencyTreeNode {
             dependency: dep.clone(),
             children: Vec::new(),
@@ -168,7 +190,7 @@ impl DependencyTreeNode {
     pub fn print_tree(&self) {
         let indent = "  ".repeat(self.depth);
         println!("{}{}", indent, self.dependency.coordinate());
-        
+
         for child in &self.children {
             child.print_tree();
         }

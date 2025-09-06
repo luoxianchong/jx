@@ -1,0 +1,35 @@
+{
+    // Rust相关设置
+    "rust-analyzer.checkOnSave.command": "check",
+    "rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.procMacro.enable": true,
+    "rust-analyzer.cargo.runBuildScripts": true,
+    "rust-analyzer.checkOnSave.allTargets": true,
+    // 代码格式化
+    "editor.formatOnSave": true,
+    "editor.formatOnType": true,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "editor.semanticHighlighting.enabled": true, // 全局开关
+    },
+    // 语法高亮
+    "[toml]": {
+        "editor.defaultFormatter": "tamasfe.even-better-toml"
+    },
+    // 编辑器设置
+    "editor.renderWhitespace": "boundary",
+    "editor.rulers": [
+        100
+    ],
+    "files.exclude": {
+        "**/target": true,
+        "**/*.rs.bk": true
+    },
+    // 终端设置
+    "terminal.integrated.shellArgs.osx": [
+        "-l"
+    ],
+    "rust-analyzer.checkOnSave": false
+}

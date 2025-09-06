@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
+use futures_util::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
+use reqwest;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use tokio::io::AsyncWriteExt;
 
 pub struct Downloader {
     cache_dir: String,
@@ -30,7 +33,10 @@ impl Downloader {
             format!("{}-{}.jar", artifact_id, version)
         };
 
-        let cache_path = format!("{}/{}/{}/{}", self.cache_dir, group_id, artifact_id, filename);
+        let cache_path = format!(
+            "{}/{}/{}/{}",
+            self.cache_dir, group_id, artifact_id, filename
+        );
         let cache_file = Path::new(&cache_path);
 
         // 检查缓存
@@ -48,20 +54,58 @@ impl Downloader {
         let url = self.build_maven_central_url(group_id, artifact_id, version, classifier);
         println!("下载: {}", url);
 
-        println!("正在下载...");
+        // 创建HTTP客户端
+        let client = reqwest::Client::new();
 
-        // 使用curl下载
-        let output = Command::new("curl")
-            .args(&["-L", "-o", &cache_path, &url])
-            .output()
-            .context("执行curl命令失败")?;
+        // 发送GET请求
+        let response = client.get(&url).send().await.context("发送HTTP请求失败")?;
+
+        // 检查响应状态
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "HTTP请求失败，状态码: {}",
+                response.status()
+            ));
+        }
+
+        // 获取文件大小
+        let total_size = response
+            .content_length()
+            .ok_or_else(|| anyhow::anyhow!("无法获取文件大小"))?;
+
+        // 创建进度条
+        let pb = ProgressBar::new(total_size);
+        pb.set_style(
+            ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
+            .map_err(|e| anyhow::anyhow!("设置进度条模板失败: {}", e))?
+            .progress_chars("#>-"),
+        );
+        pb.set_message(format!("下载 {}", filename));
+
+        // 创建文件
+        let mut file = tokio::fs::File::create(&cache_path)
+            .await
+            .context("创建文件失败")?;
+
+        // 下载并写入文件
+        let mut stream = response.bytes_stream();
+        let mut downloaded: u64 = 0;
+
+        while let Some(item) = stream.next().await {
+            let chunk = item.context("下载数据失败")?;
+            file.write_all(&chunk).await.context("写入文件失败")?;
+            downloaded += chunk.len() as u64;
+            pb.set_position(downloaded);
+        }
+
+        // 关闭文件
+        file.flush().await.context("刷新文件缓冲区失败")?;
+
+        // 完成进度条
+        pb.finish_with_message(format!("下载完成 {}", filename));
 
         println!("下载完成");
-
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("下载失败: {}", error));
-        }
 
         Ok(cache_path)
     }
@@ -107,11 +151,11 @@ impl Downloader {
 
     fn calculate_dir_size(&self, dir_path: &str, total_size: &mut u64) -> Result<()> {
         let entries = fs::read_dir(dir_path)?;
-        
+
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() {
                 if let Ok(metadata) = fs::metadata(&path) {
                     *total_size += metadata.len();
@@ -120,7 +164,7 @@ impl Downloader {
                 self.calculate_dir_size(path.to_str().unwrap(), total_size)?;
             }
         }
-        
+
         Ok(())
     }
 }
