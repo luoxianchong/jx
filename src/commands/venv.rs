@@ -98,24 +98,38 @@ pub async fn create(
     fs::create_dir_all(venv_dir.join("conf"))?;
     fs::create_dir_all(venv_dir.join("cache"))?;
 
-    // 创建虚拟环境配置文件
-    create_venv_config(&venv_dir, &java_version, &build_tool)?;
+    // 将后续安装流程包裹在可回滚的流程中
+    let result: Result<()> = async {
+        // 创建虚拟环境配置文件
+        create_venv_config(&venv_dir, &java_version, &build_tool)?;
 
-    // 下载并安装Java
-    install_java(&venv_dir, &java_version).await?;
+        // 下载并安装Java
+        install_java(&venv_dir, &java_version).await?;
 
-    // 根据构建工具类型安装相应的构建工具
-    match &build_tool {
-        BuildTool::Maven(version) => {
-            install_maven(&venv_dir, version).await?;
+        // 根据构建工具类型安装相应的构建工具
+        match &build_tool {
+            BuildTool::Maven(version) => {
+                install_maven(&venv_dir, version).await?;
+            }
+            BuildTool::Gradle(version) => {
+                install_gradle(&venv_dir, version).await?;
+            }
         }
-        BuildTool::Gradle(version) => {
-            install_gradle(&venv_dir, version).await?;
-        }
+
+        // 创建激活脚本
+        create_activation_scripts(&venv_dir, &venv_name, &build_tool)?;
+
+        Ok(())
     }
+    .await;
 
-    // 创建激活脚本
-    create_activation_scripts(&venv_dir, &venv_name, &build_tool)?;
+    if let Err(err) = result {
+        // 安装或下载失败时，尝试清理已创建的虚拟环境目录
+        eprintln!("❌ 虚拟环境创建失败: {}", err);
+        eprintln!("🧹 正在回滚并删除未完成的虚拟环境: {}", venv_dir.display());
+        let _ = fs::remove_dir_all(&venv_dir);
+        return Err(err);
+    }
 
     println!("✅ 虚拟环境 '{}' 创建成功!", venv_name);
     println!("路径: {}", venv_dir.display());
