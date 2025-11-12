@@ -175,25 +175,27 @@ async fn main() {
                         .arg(
                             Arg::with_name("java-version")
                                 .long("java-version")
-                                .help("Java版本 (8, 11, 17, 21)")
+                                .alias("jv")
+                                .help("Java版本 (8, 11, 17, 21, 25)")
                                 .default_value("17")
                                 .takes_value(true),
                         )
                         .arg(
                             Arg::with_name("maven-version")
                                 .long("maven-version")
-                                .help("Maven版本 (与gradle-version互斥)")
-                                .default_value("3.9.5")
+                                .alias("mv")
+                                .default_value("3.9.9")
+                                .help("Maven版本 (默认使用Maven作为构建工具)")
                                 .takes_value(true)
                                 .conflicts_with("gradle-version"),
                         )
                         .arg(
                             Arg::with_name("gradle-version")
                                 .long("gradle-version")
-                                .help("Gradle版本 (与maven-version互斥)")
-                                .default_value("8.4")
+                                .alias("gv")
+                                .help("Gradle版本 (使用Gradle代替默认的Maven)")
                                 .takes_value(true)
-                                .require_equals(true),
+                                .conflicts_with("maven-version"),
                         ),
                 )
                 .subcommand(
@@ -315,21 +317,20 @@ async fn main() {
                         .unwrap_or("17")
                         .to_string();
 
-                    // 确定构建工具类型
+                    // 确定构建工具类型（默认使用 Maven）
                     let build_tool = if create_matches.is_present("gradle-version") {
+                        // 用户显式指定了 Gradle
                         let gradle_version =
                             create_matches.value_of("gradle-version").unwrap_or("8.4");
-
-                        // 如果版本为空字符串，使用默认版本
-                        let version = if gradle_version.is_empty() {
-                            "8.4"
-                        } else {
-                            gradle_version
-                        };
-                        commands::venv::BuildTool::Gradle(version.to_string())
+                        commands::venv::BuildTool::Gradle(gradle_version.to_string())
                     } else {
-                        let maven_version =
-                            create_matches.value_of("maven-version").unwrap_or("3.9.5");
+                        // 默认使用 Maven
+                        // 如果用户指定了 maven-version，使用指定的版本，否则使用默认版本 3.9.5
+                        let maven_version = if create_matches.is_present("maven-version") {
+                            create_matches.value_of("maven-version").unwrap_or("3.9.5")
+                        } else {
+                            "3.9.5"
+                        };
                         commands::venv::BuildTool::Maven(maven_version.to_string())
                     };
 

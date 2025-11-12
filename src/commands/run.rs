@@ -124,35 +124,29 @@ fn run_maven_project(project_dir: &Path, main_class: &str, args: &[String]) -> R
         return Err(anyhow::anyhow!("Maven编译失败: {}", error));
     }
     
-    // 运行项目
+    // 运行项目 - 使用 spawn 和 status 来直接输出到控制台
     println!("运行项目...");
-    let mut mvn_args = vec!["exec:java", "-Dexec.mainClass", main_class];
+    println!("──────────────────────────────────────────");
     
-    let args_str = if !args.is_empty() {
-        args.join(" ")
-    } else {
-        String::new()
-    };
+    let mut mvn_cmd = Command::new("mvn");
+    mvn_cmd.arg("exec:java");
+    mvn_cmd.arg(format!("-Dexec.mainClass={}", main_class));
     
     if !args.is_empty() {
-        mvn_args.push("-Dexec.args");
-        mvn_args.push(&args_str);
+        let args_str = args.join(" ");
+        mvn_cmd.arg(format!("-Dexec.args={}", args_str));
     }
     
-    let run_output = Command::new("mvn")
-        .args(&mvn_args)
-        .current_dir(project_dir)
-        .output()
-        .context("Maven运行失败")?;
+    mvn_cmd.current_dir(project_dir);
     
-    if !run_output.status.success() {
-        let error = String::from_utf8_lossy(&run_output.stderr);
-        return Err(anyhow::anyhow!("Maven运行失败: {}", error));
+    // 使用 status() 而不是 output() 以便实时显示输出
+    let status = mvn_cmd.status().context("Maven运行失败")?;
+    
+    println!("──────────────────────────────────────────");
+    
+    if !status.success() {
+        return Err(anyhow::anyhow!("程序执行失败"));
     }
-    
-    let stdout = String::from_utf8_lossy(&run_output.stdout);
-    println!("程序输出:");
-    println!("{}", stdout);
     
     Ok(())
 }
@@ -177,35 +171,29 @@ fn run_gradle_project(project_dir: &Path, _main_class: &str, args: &[String]) ->
         return Err(anyhow::anyhow!("Gradle编译失败: {}", error));
     }
     
-    // 运行项目
+    // 运行项目 - 使用 spawn 和 status 来直接输出到控制台
     println!("运行项目...");
-    let mut gradle_args = vec!["run"];
+    println!("──────────────────────────────────────────");
     
-    let args_str = if !args.is_empty() {
-        args.join(" ")
-    } else {
-        String::new()
-    };
+    let mut gradle_cmd = Command::new("gradle");
+    gradle_cmd.arg("run");
     
     if !args.is_empty() {
-        gradle_args.push("--args");
-        gradle_args.push(&args_str);
+        let args_str = args.join(" ");
+        gradle_cmd.arg("--args");
+        gradle_cmd.arg(&args_str);
     }
     
-    let run_output = Command::new("gradle")
-        .args(&gradle_args)
-        .current_dir(project_dir)
-        .output()
-        .context("Gradle运行失败")?;
+    gradle_cmd.current_dir(project_dir);
     
-    if !run_output.status.success() {
-        let error = String::from_utf8_lossy(&run_output.stderr);
-        return Err(anyhow::anyhow!("Gradle运行失败: {}", error));
+    // 使用 status() 而不是 output() 以便实时显示输出
+    let status = gradle_cmd.status().context("Gradle运行失败")?;
+    
+    println!("──────────────────────────────────────────");
+    
+    if !status.success() {
+        return Err(anyhow::anyhow!("程序执行失败"));
     }
-    
-    let stdout = String::from_utf8_lossy(&run_output.stdout);
-    println!("程序输出:");
-    println!("{}", stdout);
     
     Ok(())
 }
