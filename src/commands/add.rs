@@ -5,7 +5,7 @@ use std::process::Command;
 
 pub fn execute(dependency: String, scope: String) -> Result<()> {
     let current_dir = std::env::current_dir()?;
-    
+
     // 查找项目配置文件
     let config_file = if current_dir.join("jx.toml").exists() {
         "jx.toml"
@@ -23,7 +23,7 @@ pub fn execute(dependency: String, scope: String) -> Result<()> {
 
     // 解析依赖坐标
     let dep_info = parse_dependency_coordinate(&dependency)?;
-    
+
     // 根据配置文件类型添加依赖
     let result = match config_file {
         "jx.toml" => add_to_jx_config(&current_dir, &dep_info, &scope),
@@ -54,7 +54,7 @@ struct DependencyInfo {
 
 fn parse_dependency_coordinate(coordinate: &str) -> Result<DependencyInfo> {
     let parts: Vec<&str> = coordinate.split(':').collect();
-    
+
     match parts.len() {
         2 => {
             // 没有版本号，尝试获取最新版本
@@ -65,19 +65,21 @@ fn parse_dependency_coordinate(coordinate: &str) -> Result<DependencyInfo> {
                 artifact_id: parts[1].to_string(),
                 version: Some(latest_version),
             })
-        },
+        }
         3 => Ok(DependencyInfo {
             group_id: parts[0].to_string(),
             artifact_id: parts[1].to_string(),
             version: Some(parts[2].to_string()),
         }),
-        _ => Err(anyhow::anyhow!("无效的依赖坐标格式，应为 groupId:artifactId 或 groupId:artifactId:version")),
+        _ => Err(anyhow::anyhow!(
+            "无效的依赖坐标格式，应为 groupId:artifactId 或 groupId:artifactId:version"
+        )),
     }
 }
 
 fn add_to_jx_config(project_dir: &Path, dep_info: &DependencyInfo, _scope: &str) -> Result<()> {
     let config_path = project_dir.join("jx.toml");
-    
+
     if !config_path.exists() {
         // 如果配置文件不存在，创建一个基本的配置
         let basic_config = format!(
@@ -96,16 +98,16 @@ test_class = "com.example.MainTest"
         );
         fs::write(&config_path, basic_config)?;
     }
-    
+
     let config_content = fs::read_to_string(&config_path)?;
-    
+
     // 简单的TOML解析和修改
     let mut lines: Vec<String> = config_content.lines().map(|s| s.to_string()).collect();
-    
+
     // 查找dependencies部分
     let mut in_dependencies = false;
     let mut _dependencies_start = 0;
-    
+
     for (i, line) in lines.iter().enumerate() {
         if line.trim() == "[dependencies]" {
             in_dependencies = true;
@@ -113,26 +115,27 @@ test_class = "com.example.MainTest"
             break;
         }
     }
-    
+
     if !in_dependencies {
         // 如果没有dependencies部分，添加一个
         lines.push("[dependencies]".to_string());
         _dependencies_start = lines.len() - 1;
     }
-    
+
     // 构建依赖行
-    let dep_line = format!("{}:{} = \"{}\"", 
-        dep_info.group_id, 
-        dep_info.artifact_id, 
+    let dep_line = format!(
+        "{}:{} = \"{}\"",
+        dep_info.group_id,
+        dep_info.artifact_id,
         dep_info.version.as_ref().expect("版本号必须存在")
     );
-    
+
     // 在dependencies部分后添加依赖
     lines.insert(_dependencies_start + 1, dep_line);
-    
+
     // 写回文件
     fs::write(&config_path, lines.join("\n"))?;
-    
+
     println!("已添加到 jx.toml");
     Ok(())
 }
@@ -140,15 +143,15 @@ test_class = "com.example.MainTest"
 fn add_to_maven(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> Result<()> {
     let pom_path = project_dir.join("pom.xml");
     let pom_content = fs::read_to_string(&pom_path)?;
-    
+
     // 简单的XML解析和修改
     let mut lines: Vec<String> = pom_content.lines().map(|s| s.to_string()).collect();
-    
+
     // 查找dependencies部分
     let mut in_dependencies = false;
     let mut _dependencies_start = 0;
     let mut dependencies_end = 0;
-    
+
     for (i, line) in lines.iter().enumerate() {
         if line.trim() == "<dependencies>" {
             in_dependencies = true;
@@ -158,11 +161,11 @@ fn add_to_maven(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> R
             break;
         }
     }
-    
+
     if !in_dependencies {
         return Err(anyhow::anyhow!("在pom.xml中找不到dependencies部分"));
     }
-    
+
     // 构建依赖XML
     let dep_xml = format!(
         r#"        <dependency>
@@ -176,13 +179,13 @@ fn add_to_maven(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> R
         dep_info.version.as_ref().expect("版本号必须存在"),
         scope
     );
-    
+
     // 在</dependencies>前添加依赖
     lines.insert(dependencies_end, dep_xml);
-    
+
     // 写回文件
     fs::write(&pom_path, lines.join("\n"))?;
-    
+
     println!("已添加到 pom.xml");
     Ok(())
 }
@@ -190,14 +193,14 @@ fn add_to_maven(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> R
 fn add_to_gradle(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> Result<()> {
     let build_gradle_path = project_dir.join("build.gradle");
     let build_content = fs::read_to_string(&build_gradle_path)?;
-    
+
     // 简单的Gradle解析和修改
     let mut lines: Vec<String> = build_content.lines().map(|s| s.to_string()).collect();
-    
+
     // 查找dependencies部分
     let mut in_dependencies = false;
     let mut _dependencies_start = 0;
-    
+
     for (i, line) in lines.iter().enumerate() {
         if line.trim() == "dependencies {" {
             in_dependencies = true;
@@ -205,49 +208,46 @@ fn add_to_gradle(project_dir: &Path, dep_info: &DependencyInfo, scope: &str) -> 
             break;
         }
     }
-    
+
     if !in_dependencies {
         return Err(anyhow::anyhow!("在build.gradle中找不到dependencies部分"));
     }
-    
+
     // 构建依赖行
-    let dep_line = format!("    {} '{}:{}:{}'", 
-        scope, 
-        dep_info.group_id, 
-        dep_info.artifact_id, 
+    let dep_line = format!(
+        "    {} '{}:{}:{}'",
+        scope,
+        dep_info.group_id,
+        dep_info.artifact_id,
         dep_info.version.as_ref().expect("版本号必须存在")
     );
-    
+
     // 在dependencies部分后添加依赖
     lines.insert(_dependencies_start + 1, dep_line);
-    
+
     // 写回文件
     fs::write(&build_gradle_path, lines.join("\n"))?;
-    
+
     println!("已添加到 build.gradle");
     Ok(())
 }
 
 fn get_latest_version(group_id: &str, artifact_id: &str) -> Result<String> {
     println!("🔍 正在查询最新版本...");
-    
+
     // 尝试从 Maven Central 获取最新版本
     let url = format!(
         "https://search.maven.org/solrsearch/select?q=g:{}+AND+a:{}&rows=1&wt=json",
         group_id, artifact_id
     );
-    
+
     // 使用 curl 获取信息
-    let output = Command::new("curl")
-        .arg("-s")
-        .arg("-f")
-        .arg(&url)
-        .output();
-    
+    let output = Command::new("curl").arg("-s").arg("-f").arg(&url).output();
+
     match output {
         Ok(output) if output.status.success() => {
             let response = String::from_utf8_lossy(&output.stdout);
-            
+
             // 简单的 JSON 解析来获取版本号
             if let Some(version) = parse_maven_central_response(&response) {
                 return Ok(version);
@@ -255,16 +255,20 @@ fn get_latest_version(group_id: &str, artifact_id: &str) -> Result<String> {
         }
         _ => {}
     }
-    
+
     // 如果 Maven Central 查询失败，尝试使用 Maven 命令
     if check_command_exists("mvn") {
         let output = Command::new("mvn")
             .arg("-q")
             .arg("versions:display-dependency-updates")
-            .arg("-Dincludes={}:{}".replace("{}", group_id).replace("{}", artifact_id))
+            .arg(
+                "-Dincludes={}:{}"
+                    .replace("{}", group_id)
+                    .replace("{}", artifact_id),
+            )
             .arg("-DprocessDependencies=false")
             .output();
-        
+
         if let Ok(output) = output {
             if output.status.success() {
                 let response = String::from_utf8_lossy(&output.stdout);
@@ -274,7 +278,7 @@ fn get_latest_version(group_id: &str, artifact_id: &str) -> Result<String> {
             }
         }
     }
-    
+
     // 返回一个默认的最新稳定版本（对于常见库）
     Ok(get_default_latest_version(group_id, artifact_id))
 }

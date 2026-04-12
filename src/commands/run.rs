@@ -4,7 +4,7 @@ use std::process::Command;
 
 pub fn execute(main_class: Option<String>, args: Vec<String>) -> Result<()> {
     let current_dir = std::env::current_dir()?;
-    
+
     // 查找项目配置文件
     let config_file = if current_dir.join("jx.toml").exists() {
         "jx.toml"
@@ -17,14 +17,14 @@ pub fn execute(main_class: Option<String>, args: Vec<String>) -> Result<()> {
     };
 
     println!("🚀 运行项目...");
-    
+
     let class_to_run = if let Some(ref class) = main_class {
         class.clone()
     } else {
         // 从配置文件获取主类
         get_main_class_from_config(&current_dir, config_file)?
     };
-    
+
     println!("主类: {}", class_to_run);
     if !args.is_empty() {
         println!("参数: {}", args.join(" "));
@@ -55,11 +55,12 @@ fn get_main_class_from_config(project_dir: &Path, config_file: &str) -> Result<S
         "jx.toml" => {
             let config_path = project_dir.join("jx.toml");
             let config_content = std::fs::read_to_string(&config_path)?;
-            
+
             // 从jx.toml中提取主类
             for line in config_content.lines() {
                 if line.trim().starts_with("main_class = \"") {
-                    let class = line.trim()
+                    let class = line
+                        .trim()
                         .trim_start_matches("main_class = \"")
                         .trim_end_matches("\"");
                     return Ok(class.to_string());
@@ -75,10 +76,11 @@ fn get_main_class_from_config(project_dir: &Path, config_file: &str) -> Result<S
             // Gradle项目通常使用application插件
             let build_gradle_path = project_dir.join("build.gradle");
             let build_content = std::fs::read_to_string(&build_gradle_path)?;
-            
+
             for line in build_content.lines() {
                 if line.trim().starts_with("mainClass = '") {
-                    let class = line.trim()
+                    let class = line
+                        .trim()
                         .trim_start_matches("mainClass = '")
                         .trim_end_matches("'");
                     return Ok(class.to_string());
@@ -94,7 +96,7 @@ fn run_jx_project(project_dir: &Path, main_class: &str, args: &[String]) -> Resu
     // 检查jx.toml中的项目类型
     let config_path = project_dir.join("jx.toml");
     let config_content = std::fs::read_to_string(&config_path)?;
-    
+
     if config_content.contains("type = \"maven\"") {
         run_maven_project(project_dir, main_class, args)
     } else if config_content.contains("type = \"gradle\"") {
@@ -106,11 +108,11 @@ fn run_jx_project(project_dir: &Path, main_class: &str, args: &[String]) -> Resu
 
 fn run_maven_project(project_dir: &Path, main_class: &str, args: &[String]) -> Result<()> {
     println!("使用Maven运行项目...");
-    
+
     if !check_command_exists("mvn") {
         return Err(anyhow::anyhow!("Maven未安装，请先安装Maven"));
     }
-    
+
     // 先编译项目
     println!("编译项目...");
     let compile_output = Command::new("mvn")
@@ -118,46 +120,46 @@ fn run_maven_project(project_dir: &Path, main_class: &str, args: &[String]) -> R
         .current_dir(project_dir)
         .output()
         .context("Maven编译失败")?;
-    
+
     if !compile_output.status.success() {
         let error = String::from_utf8_lossy(&compile_output.stderr);
         return Err(anyhow::anyhow!("Maven编译失败: {}", error));
     }
-    
+
     // 运行项目 - 使用 spawn 和 status 来直接输出到控制台
     println!("运行项目...");
     println!("──────────────────────────────────────────");
-    
+
     let mut mvn_cmd = Command::new("mvn");
     mvn_cmd.arg("exec:java");
     mvn_cmd.arg(format!("-Dexec.mainClass={}", main_class));
-    
+
     if !args.is_empty() {
         let args_str = args.join(" ");
         mvn_cmd.arg(format!("-Dexec.args={}", args_str));
     }
-    
+
     mvn_cmd.current_dir(project_dir);
-    
+
     // 使用 status() 而不是 output() 以便实时显示输出
     let status = mvn_cmd.status().context("Maven运行失败")?;
-    
+
     println!("──────────────────────────────────────────");
-    
+
     if !status.success() {
         return Err(anyhow::anyhow!("程序执行失败"));
     }
-    
+
     Ok(())
 }
 
 fn run_gradle_project(project_dir: &Path, _main_class: &str, args: &[String]) -> Result<()> {
     println!("使用Gradle运行项目...");
-    
+
     if !check_command_exists("gradle") {
         return Err(anyhow::anyhow!("Gradle未安装，请先安装Gradle"));
     }
-    
+
     // 先编译项目
     println!("编译项目...");
     let compile_output = Command::new("gradle")
@@ -165,36 +167,36 @@ fn run_gradle_project(project_dir: &Path, _main_class: &str, args: &[String]) ->
         .current_dir(project_dir)
         .output()
         .context("Gradle编译失败")?;
-    
+
     if !compile_output.status.success() {
         let error = String::from_utf8_lossy(&compile_output.stderr);
         return Err(anyhow::anyhow!("Gradle编译失败: {}", error));
     }
-    
+
     // 运行项目 - 使用 spawn 和 status 来直接输出到控制台
     println!("运行项目...");
     println!("──────────────────────────────────────────");
-    
+
     let mut gradle_cmd = Command::new("gradle");
     gradle_cmd.arg("run");
-    
+
     if !args.is_empty() {
         let args_str = args.join(" ");
         gradle_cmd.arg("--args");
         gradle_cmd.arg(&args_str);
     }
-    
+
     gradle_cmd.current_dir(project_dir);
-    
+
     // 使用 status() 而不是 output() 以便实时显示输出
     let status = gradle_cmd.status().context("Gradle运行失败")?;
-    
+
     println!("──────────────────────────────────────────");
-    
+
     if !status.success() {
         return Err(anyhow::anyhow!("程序执行失败"));
     }
-    
+
     Ok(())
 }
 

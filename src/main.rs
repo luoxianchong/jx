@@ -201,7 +201,14 @@ async fn main() {
                 .subcommand(
                     SubCommand::with_name("activate")
                         .about("激活虚拟环境")
-                        .arg(Arg::with_name("NAME").help("虚拟环境名称").index(1)),
+                        .arg(Arg::with_name("NAME").help("虚拟环境名称").index(1))
+                        .arg(
+                            Arg::with_name("permanent")
+                                .long("permanent")
+                                .short('p')
+                                .help("将激活脚本写入当前Shell的配置文件，实现永久激活")
+                                .takes_value(false),
+                        ),
                 )
                 .subcommand(SubCommand::with_name("deactivate").about("停用虚拟环境"))
                 .subcommand(SubCommand::with_name("list").about("列出所有虚拟环境"))
@@ -338,7 +345,8 @@ async fn main() {
                 }
                 Some(("activate", activate_matches)) => {
                     let name = activate_matches.value_of("NAME").map(|s| s.to_string());
-                    commands::venv::activate(name)
+                    let permanent = activate_matches.is_present("permanent");
+                    commands::venv::activate(name, permanent)
                 }
                 Some(("deactivate", _)) => commands::venv::deactivate(),
                 Some(("list", _)) => commands::venv::list(),
@@ -355,7 +363,7 @@ async fn main() {
                     println!("");
                     println!("使用方法:");
                     println!("  jx venv create [NAME] [--java-version VERSION] [--maven-version VERSION | --gradle-version VERSION]");
-                    println!("  jx venv activate [NAME]");
+                    println!("  jx venv activate [NAME] [-p|--permanent]");
                     println!("  jx venv deactivate");
                     println!("  jx venv list");
                     println!("  jx venv remove <NAME>");

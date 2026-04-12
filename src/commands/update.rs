@@ -5,7 +5,7 @@ use std::process::Command;
 
 pub fn execute(dependency: Option<String>, latest: bool) -> Result<()> {
     let current_dir = std::env::current_dir()?;
-    
+
     // 查找项目配置文件
     let config_file = if current_dir.join("jx.toml").exists() {
         "jx.toml"
@@ -18,13 +18,13 @@ pub fn execute(dependency: Option<String>, latest: bool) -> Result<()> {
     };
 
     println!("🔄 更新依赖...");
-    
+
     if let Some(dep) = &dependency {
         println!("依赖: {}", dep);
     } else {
         println!("更新所有依赖");
     }
-    
+
     if latest {
         println!("更新到最新版本");
     }
@@ -52,34 +52,42 @@ pub fn execute(dependency: Option<String>, latest: bool) -> Result<()> {
 
 fn update_jx_config(project_dir: &Path, dependency: &Option<String>, latest: bool) -> Result<()> {
     let config_path = project_dir.join("jx.toml");
-    
+
     if !config_path.exists() {
         return Err(anyhow::anyhow!("找不到jx.toml配置文件"));
     }
-    
+
     if latest {
         // 对于最新版本，提示用户使用具体版本号
-        return Err(anyhow::anyhow!("请指定具体的版本号进行更新，格式: groupId:artifactId:version"));
+        return Err(anyhow::anyhow!(
+            "请指定具体的版本号进行更新，格式: groupId:artifactId:version"
+        ));
     } else if let Some(dep) = dependency {
         // 更新特定依赖
         let dep_info = parse_dependency_coordinate_auto(dep)?;
         let config_content = fs::read_to_string(&config_path)?;
         let mut lines: Vec<String> = config_content.lines().map(|s| s.to_string()).collect();
-        
+
         for i in 0..lines.len() {
             let line = lines[i].trim();
             if line.starts_with(&format!("{}:{}", dep_info.group_id, dep_info.artifact_id)) {
                 // 更新为指定的版本号
-                let new_line = format!("{}:{} = \"{}\"", dep_info.group_id, dep_info.artifact_id, dep_info.version);
+                let new_line = format!(
+                    "{}:{} = \"{}\"",
+                    dep_info.group_id, dep_info.artifact_id, dep_info.version
+                );
                 lines[i] = new_line;
-                println!("已更新依赖 {}:{} 到版本 {}", dep_info.group_id, dep_info.artifact_id, dep_info.version);
+                println!(
+                    "已更新依赖 {}:{} 到版本 {}",
+                    dep_info.group_id, dep_info.artifact_id, dep_info.version
+                );
                 break;
             }
         }
-        
+
         fs::write(&config_path, lines.join("\n"))?;
     }
-    
+
     Ok(())
 }
 
@@ -87,22 +95,22 @@ fn update_maven(project_dir: &Path, dependency: &Option<String>, latest: bool) -
     if latest {
         // 使用Maven命令更新所有依赖
         println!("使用Maven更新所有依赖...");
-        
+
         if !check_command_exists("mvn") {
             return Err(anyhow::anyhow!("Maven未安装，请先安装Maven"));
         }
-        
+
         let output = Command::new("mvn")
             .arg("versions:use-latest-versions")
             .current_dir(project_dir)
             .output()
             .context("执行Maven命令失败")?;
-        
+
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
             return Err(anyhow::anyhow!("Maven更新失败: {}", error));
         }
-        
+
         println!("Maven依赖更新完成");
     } else if let Some(dep) = dependency {
         // 更新特定依赖
@@ -110,7 +118,7 @@ fn update_maven(project_dir: &Path, dependency: &Option<String>, latest: bool) -
         let pom_path = project_dir.join("pom.xml");
         let pom_content = fs::read_to_string(&pom_path)?;
         let mut lines: Vec<String> = pom_content.lines().map(|s| s.to_string()).collect();
-        
+
         // 查找并更新版本号
         let mut i = 0;
         while i < lines.len() {
@@ -118,7 +126,7 @@ fn update_maven(project_dir: &Path, dependency: &Option<String>, latest: bool) -
             if line == "<dependency>" {
                 let mut in_dependency = false;
                 let mut dependency_start = i;
-                
+
                 for j in i..lines.len() {
                     let dep_line = lines[j].trim();
                     if dep_line == "<dependency>" {
@@ -127,13 +135,25 @@ fn update_maven(project_dir: &Path, dependency: &Option<String>, latest: bool) -
                     } else if in_dependency && dep_line == "</dependency>" {
                         // 检查这个依赖是否匹配
                         let dependency_lines = &lines[dependency_start..=j];
-                        if dependency_lines.iter().any(|l| l.contains(&format!("<groupId>{}</groupId>", dep_info.group_id))) &&
-                           dependency_lines.iter().any(|l| l.contains(&format!("<artifactId>{}</artifactId>", dep_info.artifact_id))) {
+                        if dependency_lines.iter().any(|l| {
+                            l.contains(&format!("<groupId>{}</groupId>", dep_info.group_id))
+                        }) && dependency_lines.iter().any(|l| {
+                            l.contains(&format!(
+                                "<artifactId>{}</artifactId>",
+                                dep_info.artifact_id
+                            ))
+                        }) {
                             // 更新为指定的版本号
                             for k in dependency_start..=j {
                                 if lines[k].trim().starts_with("<version>") {
-                                    lines[k] = format!("            <version>{}</version>", dep_info.version);
-                                    println!("已更新依赖 {}:{} 到版本 {}", dep_info.group_id, dep_info.artifact_id, dep_info.version);
+                                    lines[k] = format!(
+                                        "            <version>{}</version>",
+                                        dep_info.version
+                                    );
+                                    println!(
+                                        "已更新依赖 {}:{} 到版本 {}",
+                                        dep_info.group_id, dep_info.artifact_id, dep_info.version
+                                    );
                                     break;
                                 }
                             }
@@ -146,10 +166,10 @@ fn update_maven(project_dir: &Path, dependency: &Option<String>, latest: bool) -
             }
             i += 1;
         }
-        
+
         fs::write(&pom_path, lines.join("\n"))?;
     }
-    
+
     Ok(())
 }
 
@@ -157,22 +177,22 @@ fn update_gradle(project_dir: &Path, dependency: &Option<String>, latest: bool) 
     if latest {
         // 使用Gradle命令更新所有依赖
         println!("使用Gradle更新所有依赖...");
-        
+
         if !check_command_exists("gradle") {
             return Err(anyhow::anyhow!("Gradle未安装，请先安装Gradle"));
         }
-        
+
         let output = Command::new("gradle")
             .arg("dependencyUpdates")
             .current_dir(project_dir)
             .output()
             .context("执行Gradle命令失败")?;
-        
+
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
             return Err(anyhow::anyhow!("Gradle更新失败: {}", error));
         }
-        
+
         println!("Gradle依赖更新完成");
     } else if let Some(dep) = dependency {
         // 更新特定依赖
@@ -180,7 +200,7 @@ fn update_gradle(project_dir: &Path, dependency: &Option<String>, latest: bool) 
         let build_gradle_path = project_dir.join("build.gradle");
         let build_content = fs::read_to_string(&build_gradle_path)?;
         let mut lines: Vec<String> = build_content.lines().map(|s| s.to_string()).collect();
-        
+
         // 查找并更新版本号
         for i in 0..lines.len() {
             let line = lines[i].trim();
@@ -189,17 +209,23 @@ fn update_gradle(project_dir: &Path, dependency: &Option<String>, latest: bool) 
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     let scope = parts[0];
-                    let new_line = format!("    {} '{}:{}:{}'", scope, dep_info.group_id, dep_info.artifact_id, dep_info.version);
+                    let new_line = format!(
+                        "    {} '{}:{}:{}'",
+                        scope, dep_info.group_id, dep_info.artifact_id, dep_info.version
+                    );
                     lines[i] = new_line;
-                    println!("已更新依赖 {}:{} 到版本 {}", dep_info.group_id, dep_info.artifact_id, dep_info.version);
+                    println!(
+                        "已更新依赖 {}:{} 到版本 {}",
+                        dep_info.group_id, dep_info.artifact_id, dep_info.version
+                    );
                     break;
                 }
             }
         }
-        
+
         fs::write(&build_gradle_path, lines.join("\n"))?;
     }
-    
+
     Ok(())
 }
 
@@ -212,33 +238,37 @@ struct DependencyInfo {
 
 fn parse_dependency_coordinate(coordinate: &str) -> Result<DependencyInfo> {
     let parts: Vec<&str> = coordinate.split(':').collect();
-    
+
     match parts.len() {
         2 => Ok(DependencyInfo {
             group_id: parts[0].to_string(),
             artifact_id: parts[1].to_string(),
             version: String::new(),
         }),
-        _ => Err(anyhow::anyhow!("无效的依赖坐标格式，应为 groupId:artifactId")),
+        _ => Err(anyhow::anyhow!(
+            "无效的依赖坐标格式，应为 groupId:artifactId"
+        )),
     }
 }
 
 fn parse_dependency_coordinate_with_version(coordinate: &str) -> Result<DependencyInfo> {
     let parts: Vec<&str> = coordinate.split(':').collect();
-    
+
     match parts.len() {
         3 => Ok(DependencyInfo {
             group_id: parts[0].to_string(),
             artifact_id: parts[1].to_string(),
             version: parts[2].to_string(),
         }),
-        _ => Err(anyhow::anyhow!("无效的依赖坐标格式，必须指定版本: groupId:artifactId:version")),
+        _ => Err(anyhow::anyhow!(
+            "无效的依赖坐标格式，必须指定版本: groupId:artifactId:version"
+        )),
     }
 }
 
 fn parse_dependency_coordinate_auto(coordinate: &str) -> Result<DependencyInfo> {
     let parts: Vec<&str> = coordinate.split(':').collect();
-    
+
     match parts.len() {
         2 => {
             // 没有版本号，自动获取最新版本
@@ -249,36 +279,34 @@ fn parse_dependency_coordinate_auto(coordinate: &str) -> Result<DependencyInfo> 
                 artifact_id: parts[1].to_string(),
                 version: latest_version,
             })
-        },
+        }
         3 => Ok(DependencyInfo {
             group_id: parts[0].to_string(),
             artifact_id: parts[1].to_string(),
             version: parts[2].to_string(),
         }),
-        _ => Err(anyhow::anyhow!("无效的依赖坐标格式，应为 groupId:artifactId 或 groupId:artifactId:version")),
+        _ => Err(anyhow::anyhow!(
+            "无效的依赖坐标格式，应为 groupId:artifactId 或 groupId:artifactId:version"
+        )),
     }
 }
 
 fn get_latest_version(group_id: &str, artifact_id: &str) -> Result<String> {
     println!("🔍 正在查询最新版本...");
-    
+
     // 尝试从 Maven Central 获取最新版本
     let url = format!(
         "https://search.maven.org/solrsearch/select?q=g:{}+AND+a:{}&rows=1&wt=json",
         group_id, artifact_id
     );
-    
+
     // 使用 curl 获取信息
-    let output = Command::new("curl")
-        .arg("-s")
-        .arg("-f")
-        .arg(&url)
-        .output();
-    
+    let output = Command::new("curl").arg("-s").arg("-f").arg(&url).output();
+
     match output {
         Ok(output) if output.status.success() => {
             let response = String::from_utf8_lossy(&output.stdout);
-            
+
             // 简单的 JSON 解析来获取版本号
             if let Some(version) = parse_maven_central_response(&response) {
                 return Ok(version);
@@ -286,7 +314,7 @@ fn get_latest_version(group_id: &str, artifact_id: &str) -> Result<String> {
         }
         _ => {}
     }
-    
+
     // 返回一个默认的最新稳定版本（对于常见库）
     Ok(get_default_latest_version(group_id, artifact_id))
 }

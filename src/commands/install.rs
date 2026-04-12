@@ -4,7 +4,7 @@ use std::process::Command;
 
 pub fn execute(_file: Option<String>, _production: bool, force: bool) -> Result<()> {
     let current_dir = std::env::current_dir()?;
-    
+
     // 查找项目配置文件
     let config_file = if current_dir.join("jx.toml").exists() {
         "jx.toml"
@@ -42,7 +42,7 @@ pub fn execute(_file: Option<String>, _production: bool, force: bool) -> Result<
 
 fn install_from_maven(project_dir: &Path, production: bool, force: bool) -> Result<()> {
     println!("使用Maven安装依赖...");
-    
+
     // 检查Maven是否安装
     if !check_command_exists("mvn") {
         return Err(anyhow::anyhow!("Maven未安装，请先安装Maven"));
@@ -50,11 +50,11 @@ fn install_from_maven(project_dir: &Path, production: bool, force: bool) -> Resu
 
     // 构建Maven命令
     let mut mvn_args = vec!["dependency:resolve"];
-    
+
     if production {
         mvn_args.push("-Dscope=compile");
     }
-    
+
     if force {
         mvn_args.push("-U"); // 强制更新
     }
@@ -75,7 +75,7 @@ fn install_from_maven(project_dir: &Path, production: bool, force: bool) -> Resu
 
     println!("Maven依赖解析完成");
     println!("正在下载依赖...");
-    
+
     let download_output = Command::new("mvn")
         .arg("dependency:copy-dependencies")
         .current_dir(project_dir)
@@ -94,7 +94,7 @@ fn install_from_maven(project_dir: &Path, production: bool, force: bool) -> Resu
 
 fn install_from_gradle(project_dir: &Path, _production: bool, force: bool) -> Result<()> {
     println!("使用Gradle安装依赖...");
-    
+
     // 检查Gradle是否安装
     if !check_command_exists("gradle") {
         return Err(anyhow::anyhow!("Gradle未安装，请先安装Gradle"));
@@ -102,7 +102,7 @@ fn install_from_gradle(project_dir: &Path, _production: bool, force: bool) -> Re
 
     // 构建Gradle命令
     let mut gradle_args = vec!["dependencies"];
-    
+
     if force {
         gradle_args.push("--refresh-dependencies");
     }
@@ -123,7 +123,7 @@ fn install_from_gradle(project_dir: &Path, _production: bool, force: bool) -> Re
 
     println!("Gradle依赖解析完成");
     println!("正在下载依赖...");
-    
+
     let download_output = Command::new("gradle")
         .arg("build")
         .current_dir(project_dir)

@@ -4,7 +4,7 @@ use std::path::Path;
 
 pub fn execute(dependency: String) -> Result<()> {
     let current_dir = std::env::current_dir()?;
-    
+
     // 查找项目配置文件
     let config_file = if current_dir.join("jx.toml").exists() {
         "jx.toml"
@@ -21,7 +21,7 @@ pub fn execute(dependency: String) -> Result<()> {
 
     // 解析依赖坐标
     let dep_info = parse_dependency_coordinate(&dependency)?;
-    
+
     // 根据配置文件类型移除依赖
     let result = match config_file {
         "jx.toml" => remove_from_jx_config(&current_dir, &dep_info),
@@ -51,26 +51,28 @@ struct DependencyInfo {
 
 fn parse_dependency_coordinate(coordinate: &str) -> Result<DependencyInfo> {
     let parts: Vec<&str> = coordinate.split(':').collect();
-    
+
     match parts.len() {
         2 => Ok(DependencyInfo {
             group_id: parts[0].to_string(),
             artifact_id: parts[1].to_string(),
         }),
-        _ => Err(anyhow::anyhow!("无效的依赖坐标格式，应为 groupId:artifactId")),
+        _ => Err(anyhow::anyhow!(
+            "无效的依赖坐标格式，应为 groupId:artifactId"
+        )),
     }
 }
 
 fn remove_from_jx_config(project_dir: &Path, dep_info: &DependencyInfo) -> Result<()> {
     let config_path = project_dir.join("jx.toml");
-    
+
     if !config_path.exists() {
         return Err(anyhow::anyhow!("找不到jx.toml配置文件"));
     }
-    
+
     let config_content = fs::read_to_string(&config_path)?;
     let mut lines: Vec<String> = config_content.lines().map(|s| s.to_string()).collect();
-    
+
     // 查找并移除依赖
     let mut i = 0;
     while i < lines.len() {
@@ -82,7 +84,7 @@ fn remove_from_jx_config(project_dir: &Path, dep_info: &DependencyInfo) -> Resul
         }
         i += 1;
     }
-    
+
     // 写回文件
     fs::write(&config_path, lines.join("\n"))?;
     Ok(())
@@ -92,23 +94,31 @@ fn remove_from_maven(project_dir: &Path, dep_info: &DependencyInfo) -> Result<()
     let pom_path = project_dir.join("pom.xml");
     let pom_content = fs::read_to_string(&pom_path)?;
     let mut lines: Vec<String> = pom_content.lines().map(|s| s.to_string()).collect();
-    
+
     // 查找并移除依赖
     let mut i = 0;
     let mut in_dependency = false;
     let mut dependency_start = 0;
-    
+
     while i < lines.len() {
         let line = lines[i].trim();
-        
+
         if line == "<dependency>" {
             in_dependency = true;
             dependency_start = i;
         } else if in_dependency && line == "</dependency>" {
             // 检查这个依赖是否匹配
             let dependency_lines = &lines[dependency_start..=i];
-            if dependency_lines.iter().any(|l| l.contains(&format!("<groupId>{}</groupId>", dep_info.group_id))) &&
-               dependency_lines.iter().any(|l| l.contains(&format!("<artifactId>{}</artifactId>", dep_info.artifact_id))) {
+            if dependency_lines
+                .iter()
+                .any(|l| l.contains(&format!("<groupId>{}</groupId>", dep_info.group_id)))
+                && dependency_lines.iter().any(|l| {
+                    l.contains(&format!(
+                        "<artifactId>{}</artifactId>",
+                        dep_info.artifact_id
+                    ))
+                })
+            {
                 // 移除整个依赖块
                 for _ in dependency_start..=i {
                     lines.remove(dependency_start);
@@ -118,10 +128,10 @@ fn remove_from_maven(project_dir: &Path, dep_info: &DependencyInfo) -> Result<()
             }
             in_dependency = false;
         }
-        
+
         i += 1;
     }
-    
+
     // 写回文件
     fs::write(&pom_path, lines.join("\n"))?;
     Ok(())
@@ -131,7 +141,7 @@ fn remove_from_gradle(project_dir: &Path, dep_info: &DependencyInfo) -> Result<(
     let build_gradle_path = project_dir.join("build.gradle");
     let build_content = fs::read_to_string(&build_gradle_path)?;
     let mut lines: Vec<String> = build_content.lines().map(|s| s.to_string()).collect();
-    
+
     // 查找并移除依赖行
     let mut i = 0;
     while i < lines.len() {
@@ -143,7 +153,7 @@ fn remove_from_gradle(project_dir: &Path, dep_info: &DependencyInfo) -> Result<(
         }
         i += 1;
     }
-    
+
     // 写回文件
     fs::write(&build_gradle_path, lines.join("\n"))?;
     Ok(())

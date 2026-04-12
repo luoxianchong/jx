@@ -97,7 +97,7 @@ impl DependencyNode {
     pub fn print_tree(&self) {
         let indent = "  ".repeat(self.depth);
         println!("{}{}", indent, self.dependency.coordinate());
-        
+
         for child in &self.children {
             child.print_tree();
         }
@@ -125,11 +125,11 @@ fn build_dependency_tree(
     depth: usize,
 ) -> Result<DependencyNode> {
     visited.insert(dependency.coordinate(), true);
-    
+
     let mut node = DependencyNode::new(dependency.clone(), depth);
-    
+
     // TODO: 实现传递依赖解析
     // 这里应该查询Maven Central或其他仓库来获取传递依赖
-    
+
     Ok(node)
 }

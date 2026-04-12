@@ -136,6 +136,7 @@ pub async fn create(
     println!("");
     println!("激活虚拟环境:");
     println!("  jx venv activate {}", venv_name);
+    println!("  jx venv activate {} --permanent (-p)", venv_name);
     println!("");
     println!("停用虚拟环境:");
     println!("  jx venv deactivate");
@@ -144,7 +145,7 @@ pub async fn create(
 }
 
 /// 激活虚拟环境
-pub fn activate(name: Option<String>) -> Result<()> {
+pub fn activate(name: Option<String>, permanent: bool) -> Result<()> {
     let venv_name = name.unwrap_or_else(|| "default".to_string());
     let venv_dir = get_venv_directory(&venv_name)?;
 
@@ -190,15 +191,41 @@ pub fn activate(name: Option<String>) -> Result<()> {
 
     // 创建激活状态文件
     let activation_file = get_jx_home()?.join(".active_venv");
-    fs::write(activation_file, &venv_name)?;
+    fs::write(&activation_file, &venv_name)?;
 
     println!("✅ 虚拟环境 '{}' 已激活", venv_name);
     println!("");
-    println!("注意: 环境变量已设置，但仅对当前shell会话有效");
-    println!(
-        "要永久激活，请运行: source {}/bin/activate",
-        venv_dir.display()
-    );
+    if permanent {
+        match get_shell_profile_path() {
+            Some(profile) => match ensure_shell_profile_activation(&profile, &venv_name, &venv_dir)
+            {
+                Ok(true) => {
+                    println!("📝 已在 {} 中写入永久激活配置", profile.display());
+                    println!("请运行: source {} 使配置立即生效", profile.display());
+                }
+                Ok(false) => {
+                    println!("📝 永久激活配置已存在于 {}", profile.display());
+                    println!("若需立即生效，可运行: source {}", profile.display());
+                }
+                Err(err) => {
+                    println!("⚠️ 无法更新 {}: {}", profile.display(), err);
+                    println!("您可以手动运行: source {}/bin/activate", venv_dir.display());
+                }
+            },
+            None => {
+                println!("⚠️ 未能确定当前 shell 的配置文件。");
+                println!("请手动运行: source {}/bin/activate", venv_dir.display());
+            }
+        }
+    } else {
+        println!("注意: 环境变量已设置，但仅对当前shell会话有效");
+        println!(
+            "若需永久激活，请运行: jx venv activate {} --permanent (-p)",
+            venv_name
+        );
+    }
+    println!("");
+    println!("停用虚拟环境: jx venv deactivate");
 
     Ok(())
 }
@@ -212,8 +239,8 @@ pub fn deactivate() -> Result<()> {
         return Ok(());
     }
 
-    let active_venv = fs::read_to_string(&activation_file)?;
-    println!("🔌 停用虚拟环境 '{}'...", active_venv.trim());
+    let active_venv = fs::read_to_string(&activation_file)?.trim().to_string();
+    println!("🔌 停用虚拟环境 '{}'...", active_venv);
 
     // 删除激活状态文件
     fs::remove_file(activation_file)?;
@@ -222,6 +249,25 @@ pub fn deactivate() -> Result<()> {
     env::remove_var("JAVA_HOME");
     env::remove_var("MAVEN_HOME");
     env::remove_var("GRADLE_HOME");
+
+    if let Some(profile) = get_shell_profile_path() {
+        match clear_shell_profile_activation(&profile, &active_venv) {
+            Ok(true) => {
+                println!("🧹 已从 {} 中移除永久激活配置", profile.display());
+                println!("如需立即生效，请运行: source {}", profile.display());
+            }
+            Ok(false) => {
+                println!(
+                    "ℹ️ 在 {} 中未找到 '{}' 的永久激活配置",
+                    profile.display(),
+                    active_venv
+                );
+            }
+            Err(err) => {
+                println!("⚠️ 无法更新 {}: {}", profile.display(), err);
+            }
+        }
+    }
 
     println!("✅ 虚拟环境已停用");
     println!("");
@@ -547,6 +593,115 @@ fn get_active_venv() -> Result<Option<String>> {
     } else {
         Ok(None)
     }
+}
+
+fn get_shell_profile_path() -> Option<PathBuf> {
+    let shell_path = env::var("SHELL").ok();
+    let shell_name = shell_path
+        .as_deref()
+        .and_then(|p| Path::new(p).file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("sh");
+
+    let relative = match shell_name {
+        "zsh" => PathBuf::from(".zshrc"),
+        "bash" => PathBuf::from(".bashrc"),
+        "fish" => PathBuf::from(".config/fish/config.fish"),
+        "tcsh" => PathBuf::from(".tcshrc"),
+        "csh" => PathBuf::from(".cshrc"),
+        _ => PathBuf::from(".profile"),
+    };
+
+    let home = dirs::home_dir()?;
+    Some(home.join(relative))
+}
+
+fn ensure_shell_profile_activation(
+    profile_path: &Path,
+    venv_name: &str,
+    venv_dir: &Path,
+) -> Result<bool> {
+    if let Some(parent) = profile_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let activate_script = venv_dir.join("bin").join("activate");
+    let block = format!(
+        "## >>> jx venv {name}\nsource \"{path}\"\n## <<< jx venv {name}\n",
+        name = venv_name,
+        path = activate_script.display()
+    );
+
+    let original = if profile_path.exists() {
+        fs::read_to_string(profile_path)?
+    } else {
+        String::new()
+    };
+
+    let (mut cleaned, _) = strip_shell_profile_block(&original, venv_name);
+
+    if !cleaned.is_empty() && !cleaned.ends_with('\n') {
+        cleaned.push('\n');
+    }
+
+    cleaned.push_str(&block);
+
+    let changed = cleaned != original;
+    if changed {
+        fs::write(profile_path, cleaned)?;
+    }
+
+    Ok(changed)
+}
+
+fn clear_shell_profile_activation(profile_path: &Path, venv_name: &str) -> Result<bool> {
+    if !profile_path.exists() {
+        return Ok(false);
+    }
+
+    let original = fs::read_to_string(profile_path)?;
+    let (cleaned, changed) = strip_shell_profile_block(&original, venv_name);
+
+    if changed {
+        fs::write(profile_path, cleaned)?;
+    }
+
+    Ok(changed)
+}
+
+fn strip_shell_profile_block(content: &str, venv_name: &str) -> (String, bool) {
+    let start_marker = format!("## >>> jx venv {}", venv_name);
+    let end_marker = format!("## <<< jx venv {}", venv_name);
+
+    let mut result = String::with_capacity(content.len());
+    let mut in_block = false;
+    let mut changed = false;
+
+    for chunk in content.split_inclusive('\n') {
+        let line = chunk.trim_end_matches('\n').trim_end_matches('\r');
+
+        if !in_block && line == start_marker {
+            in_block = true;
+            changed = true;
+            continue;
+        }
+
+        if in_block {
+            if line == end_marker {
+                in_block = false;
+            }
+            changed = true;
+            continue;
+        }
+
+        result.push_str(chunk);
+    }
+
+    if in_block {
+        changed = true;
+    }
+
+    (result, changed)
 }
 
 fn create_venv_config(venv_dir: &Path, java_version: &str, build_tool: &BuildTool) -> Result<()> {
@@ -1470,7 +1625,7 @@ echo "🔌 虚拟环境 '{}' 已激活"
 echo "Java: $JAVA_HOME"
 echo "{}: ${}"
 echo ""
-echo "停用虚拟环境: deactivate"
+echo "停用虚拟环境: jx venv deactivate"
 
 # 定义停用函数
 deactivate() {{

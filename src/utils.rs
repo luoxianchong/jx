@@ -21,22 +21,17 @@ pub fn format_file_size(size: u64) -> String {
 
 pub fn calculate_directory_size(dir_path: &Path) -> Result<u64> {
     let mut total_size = 0;
-    
+
     for entry in WalkDir::new(dir_path) {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_file() {
             if let Ok(metadata) = fs::metadata(path) {
                 total_size += metadata.len();
             }
         }
     }
-    
+
     Ok(total_size)
 }
-
-
-
-
-
