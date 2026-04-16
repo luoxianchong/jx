@@ -3,44 +3,56 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-pub fn execute(dependency: String, scope: String) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
+#[derive(clap::Args)]
+#[clap(about = "添加新的依赖")]
+pub struct AddCommand {
+    #[clap(index = 1, required = true, help = "依赖坐标 (groupId:artifactId:version)")]
+    pub dependency: String,
 
-    // 查找项目配置文件
-    let config_file = if current_dir.join("jx.toml").exists() {
-        "jx.toml"
-    } else if current_dir.join("pom.xml").exists() {
-        "pom.xml"
-    } else if current_dir.join("build.gradle").exists() {
-        "build.gradle"
-    } else {
-        return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-    };
+    #[clap(short, long, default_value = "compile", possible_values = ["compile", "runtime", "test", "provided"], help = "依赖类型")]
+    pub scope: String,
+}
 
-    println!("➕ 添加依赖...");
-    println!("依赖: {}", dependency);
-    println!("作用域: {}", scope);
+impl AddCommand {
+    pub fn execute(&self) -> Result<()> {
+        let current_dir = std::env::current_dir()?;
 
-    // 解析依赖坐标
-    let dep_info = parse_dependency_coordinate(&dependency)?;
+        // 查找项目配置文件
+        let config_file = if current_dir.join("jx.toml").exists() {
+            "jx.toml"
+        } else if current_dir.join("pom.xml").exists() {
+            "pom.xml"
+        } else if current_dir.join("build.gradle").exists() {
+            "build.gradle"
+        } else {
+            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
+        };
 
-    // 根据配置文件类型添加依赖
-    let result = match config_file {
-        "jx.toml" => add_to_jx_config(&current_dir, &dep_info, &scope),
-        "pom.xml" => add_to_maven(&current_dir, &dep_info, &scope),
-        "build.gradle" => add_to_gradle(&current_dir, &dep_info, &scope),
-        _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
-    };
+        println!("➕ 添加依赖...");
+        println!("依赖: {}", self.dependency);
+        println!("作用域: {}", self.scope);
 
-    match result {
-        Ok(_) => {
-            println!("✅ 依赖添加成功!");
-            println!("请运行 'jx install' 来安装新添加的依赖");
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("❌ 添加失败: {}", e);
-            Err(e)
+        // 解析依赖坐标
+        let dep_info = parse_dependency_coordinate(&self.dependency)?;
+
+        // 根据配置文件类型添加依赖
+        let result = match config_file {
+            "jx.toml" => add_to_jx_config(&current_dir, &dep_info, &self.scope),
+            "pom.xml" => add_to_maven(&current_dir, &dep_info, &self.scope),
+            "build.gradle" => add_to_gradle(&current_dir, &dep_info, &self.scope),
+            _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 依赖添加成功!");
+                println!("请运行 'jx install' 来安装新添加的依赖");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 添加失败: {}", e);
+                Err(e)
+            }
         }
     }
 }

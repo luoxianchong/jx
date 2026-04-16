@@ -2,50 +2,62 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-pub fn execute(main_class: Option<String>, args: Vec<String>) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
+#[derive(clap::Args)]
+#[clap(about = "运行项目")]
+pub struct RunCommand {
+    #[clap(index = 1, help = "主类名")]
+    pub main_class: Option<String>,
 
-    // 查找项目配置文件
-    let config_file = if current_dir.join("jx.toml").exists() {
-        "jx.toml"
-    } else if current_dir.join("pom.xml").exists() {
-        "pom.xml"
-    } else if current_dir.join("build.gradle").exists() {
-        "build.gradle"
-    } else {
-        return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-    };
+    #[clap(index = 2, help = "程序参数")]
+    pub args: Vec<String>,
+}
 
-    println!("🚀 运行项目...");
+impl RunCommand {
+    pub fn execute(&self) -> Result<()> {
+        let current_dir = std::env::current_dir()?;
 
-    let class_to_run = if let Some(ref class) = main_class {
-        class.clone()
-    } else {
-        // 从配置文件获取主类
-        get_main_class_from_config(&current_dir, config_file)?
-    };
+        // 查找项目配置文件
+        let config_file = if current_dir.join("jx.toml").exists() {
+            "jx.toml"
+        } else if current_dir.join("pom.xml").exists() {
+            "pom.xml"
+        } else if current_dir.join("build.gradle").exists() {
+            "build.gradle"
+        } else {
+            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
+        };
 
-    println!("主类: {}", class_to_run);
-    if !args.is_empty() {
-        println!("参数: {}", args.join(" "));
-    }
+        println!("🚀 运行项目...");
 
-    // 根据配置文件类型运行项目
-    let result = match config_file {
-        "jx.toml" => run_jx_project(&current_dir, &class_to_run, &args),
-        "pom.xml" => run_maven_project(&current_dir, &class_to_run, &args),
-        "build.gradle" => run_gradle_project(&current_dir, &class_to_run, &args),
-        _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
-    };
+        let class_to_run = if let Some(ref class) = self.main_class {
+            class.clone()
+        } else {
+            // 从配置文件获取主类
+            get_main_class_from_config(&current_dir, config_file)?
+        };
 
-    match result {
-        Ok(_) => {
-            println!("✅ 项目运行完成!");
-            Ok(())
+        println!("主类: {}", class_to_run);
+        if !self.args.is_empty() {
+            println!("参数: {}", self.args.join(" "));
         }
-        Err(e) => {
-            eprintln!("❌ 运行失败: {}", e);
-            Err(e)
+
+        // 根据配置文件类型运行项目
+        let result = match config_file {
+            "jx.toml" => run_jx_project(&current_dir, &class_to_run, &self.args),
+            "pom.xml" => run_maven_project(&current_dir, &class_to_run, &self.args),
+            "build.gradle" => run_gradle_project(&current_dir, &class_to_run, &self.args),
+            _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 项目运行完成!");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 运行失败: {}", e);
+                Err(e)
+            }
         }
     }
 }

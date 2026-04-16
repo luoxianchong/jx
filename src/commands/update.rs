@@ -3,49 +3,61 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-pub fn execute(dependency: Option<String>, latest: bool) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
+#[derive(clap::Args)]
+#[clap(about = "更新依赖")]
+pub struct UpdateCommand {
+    #[clap(index = 1, help = "依赖坐标 (groupId:artifactId)")]
+    pub dependency: Option<String>,
 
-    // 查找项目配置文件
-    let config_file = if current_dir.join("jx.toml").exists() {
-        "jx.toml"
-    } else if current_dir.join("pom.xml").exists() {
-        "pom.xml"
-    } else if current_dir.join("build.gradle").exists() {
-        "build.gradle"
-    } else {
-        return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-    };
+    #[clap(long, help = "更新到最新版本")]
+    pub latest: bool,
+}
 
-    println!("🔄 更新依赖...");
+impl UpdateCommand {
+    pub fn execute(&self) -> Result<()> {
+        let current_dir = std::env::current_dir()?;
 
-    if let Some(dep) = &dependency {
-        println!("依赖: {}", dep);
-    } else {
-        println!("更新所有依赖");
-    }
+        // 查找项目配置文件
+        let config_file = if current_dir.join("jx.toml").exists() {
+            "jx.toml"
+        } else if current_dir.join("pom.xml").exists() {
+            "pom.xml"
+        } else if current_dir.join("build.gradle").exists() {
+            "build.gradle"
+        } else {
+            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
+        };
 
-    if latest {
-        println!("更新到最新版本");
-    }
+        println!("🔄 更新依赖...");
 
-    // 根据配置文件类型更新依赖
-    let result = match config_file {
-        "jx.toml" => update_jx_config(&current_dir, &dependency, latest),
-        "pom.xml" => update_maven(&current_dir, &dependency, latest),
-        "build.gradle" => update_gradle(&current_dir, &dependency, latest),
-        _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
-    };
-
-    match result {
-        Ok(_) => {
-            println!("✅ 依赖更新完成!");
-            println!("请运行 'jx install' 来安装更新后的依赖");
-            Ok(())
+        if let Some(dep) = &self.dependency {
+            println!("依赖: {}", dep);
+        } else {
+            println!("更新所有依赖");
         }
-        Err(e) => {
-            eprintln!("❌ 更新失败: {}", e);
-            Err(e)
+
+        if self.latest {
+            println!("更新到最新版本");
+        }
+
+        // 根据配置文件类型更新依赖
+        let result = match config_file {
+            "jx.toml" => update_jx_config(&current_dir, &self.dependency, self.latest),
+            "pom.xml" => update_maven(&current_dir, &self.dependency, self.latest),
+            "build.gradle" => update_gradle(&current_dir, &self.dependency, self.latest),
+            _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 依赖更新完成!");
+                println!("请运行 'jx install' 来安装更新后的依赖");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 更新失败: {}", e);
+                Err(e)
+            }
         }
     }
 }

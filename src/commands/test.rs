@@ -3,39 +3,51 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn execute(test_class: Option<String>, method: Option<String>) -> Result<()> {
-    println!("🧪 运行测试...");
+#[derive(clap::Args)]
+#[clap(about = "运行测试")]
+pub struct TestCommand {
+    #[clap(index = 1, help = "测试类名")]
+    pub test_class: Option<String>,
 
-    let current_dir = std::env::current_dir()?;
+    #[clap(long, help = "测试方法名")]
+    pub method: Option<String>,
+}
 
-    // 检测项目类型
-    let project_type = detect_project_type(&current_dir)?;
-    println!("项目类型: {}", project_type);
+impl TestCommand {
+    pub fn execute(&self) -> Result<()> {
+        println!("🧪 运行测试...");
 
-    // 获取测试配置
-    let test_config = get_test_config(&current_dir, &project_type)?;
+        let current_dir = std::env::current_dir()?;
 
-    // 显示测试信息
-    display_test_info(&test_config, &test_class, &method);
+        // 检测项目类型
+        let project_type = detect_project_type(&current_dir)?;
+        println!("项目类型: {}", project_type);
 
-    // 运行测试
-    let result = match project_type.as_str() {
-        "Maven" | "Maven + Gradle" => {
-            run_maven_tests(&current_dir, &test_config, &test_class, &method)
-        }
-        "Gradle" => run_gradle_tests(&current_dir, &test_config, &test_class, &method),
-        "jx" => run_jx_tests(&current_dir, &test_config, &test_class, &method),
-        _ => run_generic_tests(&current_dir, &test_config, &test_class, &method),
-    };
+        // 获取测试配置
+        let test_config = get_test_config(&current_dir, &project_type)?;
 
-    match result {
-        Ok(_) => {
-            println!("✅ 测试执行完成!");
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("❌ 测试执行失败: {}", e);
-            Err(e)
+        // 显示测试信息
+        display_test_info(&test_config, &self.test_class, &self.method);
+
+        // 运行测试
+        let result = match project_type.as_str() {
+            "Maven" | "Maven + Gradle" => {
+                run_maven_tests(&current_dir, &test_config, &self.test_class, &self.method)
+            }
+            "Gradle" => run_gradle_tests(&current_dir, &test_config, &self.test_class, &self.method),
+            "jx" => run_jx_tests(&current_dir, &test_config, &self.test_class, &self.method),
+            _ => run_generic_tests(&current_dir, &test_config, &self.test_class, &self.method),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 测试执行完成!");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 测试执行失败: {}", e);
+                Err(e)
+            }
         }
     }
 }
@@ -439,7 +451,7 @@ fn run_generic_tests(
 
     if test_classes.is_empty() {
         println!("⚠️ 未找到测试类");
-        return Ok(());
+        return Ok(())
     }
 
     // 运行测试

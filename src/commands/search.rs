@@ -3,77 +3,89 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-pub fn execute(query: String, limit: usize) -> Result<()> {
-    println!("🔍 搜索依赖...");
-    println!("搜索关键词: {}", query);
-    println!("最大结果数: {}", limit);
+#[derive(clap::Args)]
+#[clap(about = "搜索依赖")]
+pub struct SearchCommand {
+    #[clap(index = 1, required = true, help = "搜索关键词")]
+    pub query: String,
 
-    let current_dir = std::env::current_dir()?;
+    #[clap(short, long, default_value = "20", help = "最大结果数")]
+    pub limit: u32,
+}
 
-    // 检测项目类型
-    let project_type = detect_project_type(&current_dir)?;
-    println!("项目类型: {}", project_type);
+impl SearchCommand {
+    pub fn execute(&self) -> Result<()> {
+        println!("🔍 搜索依赖...");
+        println!("搜索关键词: {}", self.query);
+        println!("最大结果数: {}", self.limit);
 
-    // 本地搜索
-    let local_results = search_local_dependencies(&current_dir, &query, limit)?;
-    if !local_results.is_empty() {
-        println!("\n📁 本地依赖搜索结果:");
-        for (i, result) in local_results.iter().enumerate() {
-            println!(
-                "  {}. {}:{}:{}",
-                i + 1,
-                result.group_id,
-                result.artifact_id,
-                result.version
-            );
-        }
-    }
+        let current_dir = std::env::current_dir()?;
 
-    // 配置文件搜索
-    let config_results = search_in_config_files(&current_dir, &query, limit)?;
-    if !config_results.is_empty() {
-        println!("\n⚙️ 配置文件搜索结果:");
-        for (i, result) in config_results.iter().enumerate() {
-            println!(
-                "  {}. {}:{}:{}",
-                i + 1,
-                result.group_id,
-                result.artifact_id,
-                result.version
-            );
-        }
-    }
+        // 检测项目类型
+        let project_type = detect_project_type(&current_dir)?;
+        println!("项目类型: {}", project_type);
 
-    // Maven Central搜索（模拟）
-    let central_results = search_maven_central(&query, limit)?;
-    if !central_results.is_empty() {
-        println!("\n🌐 Maven Central搜索结果:");
-        for (i, result) in central_results.iter().enumerate() {
-            println!(
-                "  {}. {}:{}:{}",
-                i + 1,
-                result.group_id,
-                result.artifact_id,
-                result.version
-            );
-            if let Some(desc) = &result.description {
-                println!("     描述: {}", desc);
+        // 本地搜索
+        let local_results = search_local_dependencies(&current_dir, &self.query, self.limit as usize)?;
+        if !local_results.is_empty() {
+            println!("\n📁 本地依赖搜索结果:");
+            for (i, result) in local_results.iter().enumerate() {
+                println!(
+                    "  {}. {}:{}:{}",
+                    i + 1,
+                    result.group_id,
+                    result.artifact_id,
+                    result.version
+                );
             }
         }
-    }
 
-    let total_results = local_results.len() + config_results.len() + central_results.len();
-    if total_results == 0 {
-        println!("\n❌ 未找到匹配的依赖");
-        println!("💡 提示:");
-        println!("  - 检查搜索关键词是否正确");
-        println!("  - 尝试使用更通用的关键词");
-        println!("  - 确保项目已正确配置");
-    } else {
-        println!("\n✅ 搜索完成，共找到 {} 个结果", total_results);
-    }
+        // 配置文件搜索
+        let config_results = search_in_config_files(&current_dir, &self.query, self.limit as usize)?;
+        if !config_results.is_empty() {
+            println!("\n⚙️ 配置文件搜索结果:");
+            for (i, result) in config_results.iter().enumerate() {
+                println!(
+                    "  {}. {}:{}:{}",
+                    i + 1,
+                    result.group_id,
+                    result.artifact_id,
+                    result.version
+                );
+            }
+        }
 
-    Ok(())
+        // Maven Central搜索（模拟）
+        let central_results = search_maven_central(&self.query, self.limit as usize)?;
+        if !central_results.is_empty() {
+            println!("\n🌐 Maven Central搜索结果:");
+            for (i, result) in central_results.iter().enumerate() {
+                println!(
+                    "  {}. {}:{}:{}",
+                    i + 1,
+                    result.group_id,
+                    result.artifact_id,
+                    result.version
+                );
+                if let Some(desc) = &result.description {
+                    println!("     描述: {}", desc);
+                }
+            }
+        }
+
+        let total_results = local_results.len() + config_results.len() + central_results.len();
+        if total_results == 0 {
+            println!("\n❌ 未找到匹配的依赖");
+            println!("💡 提示:");
+            println!("  - 检查搜索关键词是否正确");
+            println!("  - 尝试使用更通用的关键词");
+            println!("  - 确保项目已正确配置");
+        } else {
+            println!("\n✅ 搜索完成，共找到 {} 个结果", total_results);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

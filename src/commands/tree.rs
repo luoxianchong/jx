@@ -3,56 +3,65 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-pub fn execute(transitive: bool) -> Result<()> {
-    println!("🌳 依赖树...");
+#[derive(clap::Args)]
+#[clap(about = "显示依赖树")]
+pub struct TreeCommand {
+    #[clap(long, help = "显示传递依赖")]
+    pub transitive: bool,
+}
 
-    let current_dir = std::env::current_dir()?;
+impl TreeCommand {
+    pub fn execute(&self) -> Result<()> {
+        println!("🌳 依赖树...");
 
-    // 检测项目类型
-    let project_type = detect_project_type(&current_dir)?;
-    println!("项目类型: {}", project_type);
+        let current_dir = std::env::current_dir()?;
 
-    if transitive {
-        println!("显示传递依赖");
-    }
+        // 检测项目类型
+        let project_type = detect_project_type(&current_dir)?;
+        println!("项目类型: {}", project_type);
 
-    // 构建依赖树
-    let dependency_tree = build_dependency_tree(&current_dir, transitive)?;
-
-    if dependency_tree.is_empty() {
-        println!("❌ 未找到依赖信息");
-        println!("💡 提示:");
-        println!("  - 确保项目已正确配置");
-        println!("  - 运行 'jx install' 安装依赖");
-        println!("  - 检查 pom.xml 或 build.gradle 文件");
-        return Ok(());
-    }
-
-    // 显示依赖树
-    println!("\n📋 依赖树结构:");
-    println!("{}", "─".repeat(50));
-
-    for (i, root_dep) in dependency_tree.iter().enumerate() {
-        if i > 0 {
-            println!();
+        if self.transitive {
+            println!("显示传递依赖");
         }
-        print_dependency_node(root_dep, 0, &mut HashMap::new());
+
+        // 构建依赖树
+        let dependency_tree = build_dependency_tree(&current_dir, self.transitive)?;
+
+        if dependency_tree.is_empty() {
+            println!("❌ 未找到依赖信息");
+            println!("💡 提示:");
+            println!("  - 确保项目已正确配置");
+            println!("  - 运行 'jx install' 安装依赖");
+            println!("  - 检查 pom.xml 或 build.gradle 文件");
+            return Ok(())
+        }
+
+        // 显示依赖树
+        println!("\n📋 依赖树结构:");
+        println!("{}", "─".repeat(50));
+
+        for (i, root_dep) in dependency_tree.iter().enumerate() {
+            if i > 0 {
+                println!();
+            }
+            print_dependency_node(root_dep, 0, &mut HashMap::new());
+        }
+
+        // 统计信息
+        let total_deps = count_total_dependencies(&dependency_tree);
+        let direct_deps = dependency_tree.len();
+        let transitive_deps = total_deps - direct_deps;
+
+        println!("\n{}", "─".repeat(50));
+        println!("📊 依赖统计:");
+        println!("  直接依赖: {}", direct_deps);
+        if self.transitive {
+            println!("  传递依赖: {}", transitive_deps);
+        }
+        println!("  总依赖数: {}", total_deps);
+
+        Ok(())
     }
-
-    // 统计信息
-    let total_deps = count_total_dependencies(&dependency_tree);
-    let direct_deps = dependency_tree.len();
-    let transitive_deps = total_deps - direct_deps;
-
-    println!("\n{}", "─".repeat(50));
-    println!("📊 依赖统计:");
-    println!("  直接依赖: {}", direct_deps);
-    if transitive {
-        println!("  传递依赖: {}", transitive_deps);
-    }
-    println!("  总依赖数: {}", total_deps);
-
-    Ok(())
 }
 
 #[derive(Debug)]

@@ -2,42 +2,54 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-pub fn execute(mode: String, no_test: bool) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
+#[derive(clap::Args)]
+#[clap(about = "构建项目")]
+pub struct BuildCommand {
+    #[clap(short, long, default_value = "debug", possible_values = ["debug", "release"], help = "构建模式")]
+    pub mode: String,
 
-    // 查找项目配置文件
-    let config_file = if current_dir.join("jx.toml").exists() {
-        "jx.toml"
-    } else if current_dir.join("pom.xml").exists() {
-        "pom.xml"
-    } else if current_dir.join("build.gradle").exists() {
-        "build.gradle"
-    } else {
-        return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-    };
+    #[clap(long, help = "跳过测试")]
+    pub no_test: bool,
+}
 
-    println!("🔨 构建项目...");
-    println!("构建模式: {}", mode);
-    if no_test {
-        println!("跳过测试");
-    }
+impl BuildCommand {
+    pub fn execute(&self) -> Result<()> {
+        let current_dir = std::env::current_dir()?;
 
-    // 根据配置文件类型构建项目
-    let result = match config_file {
-        "jx.toml" => build_jx_project(&current_dir, &mode, no_test),
-        "pom.xml" => build_maven_project(&current_dir, &mode, no_test),
-        "build.gradle" => build_gradle_project(&current_dir, &mode, no_test),
-        _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
-    };
+        // 查找项目配置文件
+        let config_file = if current_dir.join("jx.toml").exists() {
+            "jx.toml"
+        } else if current_dir.join("pom.xml").exists() {
+            "pom.xml"
+        } else if current_dir.join("build.gradle").exists() {
+            "build.gradle"
+        } else {
+            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
+        };
 
-    match result {
-        Ok(_) => {
-            println!("✅ 项目构建完成!");
-            Ok(())
+        println!("🔨 构建项目...");
+        println!("构建模式: {}", self.mode);
+        if self.no_test {
+            println!("跳过测试");
         }
-        Err(e) => {
-            eprintln!("❌ 构建失败: {}", e);
-            Err(e)
+
+        // 根据配置文件类型构建项目
+        let result = match config_file {
+            "jx.toml" => build_jx_project(&current_dir, &self.mode, self.no_test),
+            "pom.xml" => build_maven_project(&current_dir, &self.mode, self.no_test),
+            "build.gradle" => build_gradle_project(&current_dir, &self.mode, self.no_test),
+            _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 项目构建完成!");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 构建失败: {}", e);
+                Err(e)
+            }
         }
     }
 }

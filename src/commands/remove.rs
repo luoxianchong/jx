@@ -2,43 +2,52 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-pub fn execute(dependency: String) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
+#[derive(clap::Args)]
+#[clap(about = "移除依赖")]
+pub struct RemoveCommand {
+    #[clap(index = 1, required = true, help = "依赖坐标 (groupId:artifactId)")]
+    pub dependency: String,
+}
 
-    // 查找项目配置文件
-    let config_file = if current_dir.join("jx.toml").exists() {
-        "jx.toml"
-    } else if current_dir.join("pom.xml").exists() {
-        "pom.xml"
-    } else if current_dir.join("build.gradle").exists() {
-        "build.gradle"
-    } else {
-        return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-    };
+impl RemoveCommand {
+    pub fn execute(&self) -> Result<()> {
+        let current_dir = std::env::current_dir()?;
 
-    println!("🗑️ 移除依赖...");
-    println!("依赖: {}", dependency);
+        // 查找项目配置文件
+        let config_file = if current_dir.join("jx.toml").exists() {
+            "jx.toml"
+        } else if current_dir.join("pom.xml").exists() {
+            "pom.xml"
+        } else if current_dir.join("build.gradle").exists() {
+            "build.gradle"
+        } else {
+            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
+        };
 
-    // 解析依赖坐标
-    let dep_info = parse_dependency_coordinate(&dependency)?;
+        println!("🗑️ 移除依赖...");
+        println!("依赖: {}", self.dependency);
 
-    // 根据配置文件类型移除依赖
-    let result = match config_file {
-        "jx.toml" => remove_from_jx_config(&current_dir, &dep_info),
-        "pom.xml" => remove_from_maven(&current_dir, &dep_info),
-        "build.gradle" => remove_from_gradle(&current_dir, &dep_info),
-        _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
-    };
+        // 解析依赖坐标
+        let dep_info = parse_dependency_coordinate(&self.dependency)?;
 
-    match result {
-        Ok(_) => {
-            println!("✅ 依赖移除成功!");
-            println!("请运行 'jx install' 来更新依赖");
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("❌ 移除失败: {}", e);
-            Err(e)
+        // 根据配置文件类型移除依赖
+        let result = match config_file {
+            "jx.toml" => remove_from_jx_config(&current_dir, &dep_info),
+            "pom.xml" => remove_from_maven(&current_dir, &dep_info),
+            "build.gradle" => remove_from_gradle(&current_dir, &dep_info),
+            _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 依赖移除成功!");
+                println!("请运行 'jx install' 来更新依赖");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 移除失败: {}", e);
+                Err(e)
+            }
         }
     }
 }

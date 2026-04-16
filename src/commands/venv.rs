@@ -69,6 +69,115 @@ pub enum BuildTool {
     Gradle(String),
 }
 
+/// Venv 主命令
+#[derive(clap::Args)]
+#[clap(about = "管理Java虚拟环境")]
+pub struct VenvCommand {
+    #[clap(subcommand)]
+    pub command: VenvSubcommands,
+}
+
+/// Venv 子命令枚举
+#[derive(clap::Subcommand)]
+pub enum VenvSubcommands {
+    #[clap(about = "创建虚拟环境")]
+    Create(VenvCreateArgs),
+
+    #[clap(about = "激活虚拟环境")]
+    Activate(VenvActivateArgs),
+
+    #[clap(about = "停用虚拟环境")]
+    Deactivate,
+
+    #[clap(about = "列出所有虚拟环境")]
+    List,
+
+    #[clap(about = "删除虚拟环境")]
+    Remove(VenvRemoveArgs),
+
+    #[clap(about = "显示虚拟环境信息")]
+    Info(VenvInfoArgs),
+}
+
+#[derive(clap::Args)]
+pub struct VenvCreateArgs {
+    #[clap(index = 1, help = "虚拟环境名称")]
+    pub name: Option<String>,
+
+    #[clap(long, alias = "jv", default_value = "17", help = "Java版本 (8, 11, 17, 21, 25)")]
+    pub java_version: String,
+
+    #[clap(long, alias = "mv", help = "Maven版本 (默认使用Maven作为构建工具)")]
+    pub maven_version: Option<String>,
+
+    #[clap(long, alias = "gv", help = "Gradle版本 (使用Gradle代替默认的Maven)")]
+    pub gradle_version: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub struct VenvActivateArgs {
+    #[clap(index = 1, help = "虚拟环境名称")]
+    pub name: Option<String>,
+
+    #[clap(short, long, help = "将激活脚本写入当前Shell的配置文件，实现永久激活")]
+    pub permanent: bool,
+}
+
+#[derive(clap::Args)]
+pub struct VenvRemoveArgs {
+    #[clap(index = 1, required = true, help = "虚拟环境名称")]
+    pub name: String,
+}
+
+#[derive(clap::Args)]
+pub struct VenvInfoArgs {
+    #[clap(index = 1, help = "虚拟环境名称")]
+    pub name: Option<String>,
+}
+
+impl VenvCommand {
+    pub async fn execute(&self, _verbose: bool) -> Result<()> {
+        match &self.command {
+            VenvSubcommands::Create(args) => args.execute().await,
+            VenvSubcommands::Activate(args) => args.execute(),
+            VenvSubcommands::Deactivate => deactivate(),
+            VenvSubcommands::List => list(),
+            VenvSubcommands::Remove(args) => args.execute(),
+            VenvSubcommands::Info(args) => args.execute(),
+        }
+    }
+}
+
+impl VenvCreateArgs {
+    pub async fn execute(&self) -> Result<()> {
+        let build_tool = if let Some(gradle_version) = &self.gradle_version {
+            BuildTool::Gradle(gradle_version.clone())
+        } else {
+            let maven_version = self.maven_version.clone().unwrap_or_else(|| "3.9.9".to_string());
+            BuildTool::Maven(maven_version)
+        };
+        create(self.name.clone(), self.java_version.clone(), build_tool).await
+    }
+}
+
+impl VenvActivateArgs {
+    pub fn execute(&self) -> Result<()> {
+        activate(self.name.clone(), self.permanent)
+    }
+}
+
+impl VenvRemoveArgs {
+    pub fn execute(&self) -> Result<()> {
+        remove(self.name.clone())
+    }
+}
+
+impl VenvInfoArgs {
+    pub fn execute(&self) -> Result<()> {
+        info(self.name.clone())
+    }
+}
+
 /// 创建Java虚拟环境
 pub async fn create(
     name: Option<String>,

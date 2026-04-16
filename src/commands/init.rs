@@ -2,58 +2,70 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-pub fn execute(name: Option<String>, template: String) -> Result<()> {
-    let project_name = if let Some(ref n) = name {
-        n.clone()
-    } else {
+#[derive(clap::Args)]
+#[clap(about = "初始化新的Java项目")]
+pub struct InitCommand {
+    #[clap(index = 1, help = "项目名称")]
+    pub name: Option<String>,
+
+    #[clap(short, long, default_value = "maven", possible_values = ["maven", "gradle"], help = "项目类型")]
+    pub template: String,
+}
+
+impl InitCommand {
+    pub fn execute(&self) -> Result<()> {
+        let project_name = if let Some(ref n) = self.name {
+            n.clone()
+        } else {
+            let current_dir = std::env::current_dir()?;
+            current_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("my-java-project")
+                .to_string()
+        };
+
         let current_dir = std::env::current_dir()?;
-        current_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("my-java-project")
-            .to_string()
-    };
+        let project_dir = if self.name.is_some() {
+            current_dir.join(&project_name)
+        } else {
+            current_dir.clone()
+        };
 
-    let current_dir = std::env::current_dir()?;
-    let project_dir = if name.is_some() {
-        current_dir.join(&project_name)
-    } else {
-        current_dir.clone()
-    };
+        // 检查目录是否已存在
+        if project_dir.exists() && project_dir != current_dir {
+            return Err(anyhow::anyhow!("目录 '{}' 已存在", project_name));
+        }
 
-    // 检查目录是否已存在
-    if project_dir.exists() && project_dir != current_dir {
-        return Err(anyhow::anyhow!("目录 '{}' 已存在", project_name));
+        // 创建项目目录
+        if self.name.is_some() {
+            fs::create_dir_all(&project_dir)?;
+        }
+
+        // 根据模板创建项目文件
+        match self.template.as_str() {
+            "maven" => create_maven_project(&project_dir, &project_name)?,
+            "gradle" => create_gradle_project(&project_dir, &project_name)?,
+            _ => return Err(anyhow::anyhow!("不支持的模板类型: {}", self.template)),
+        }
+
+        println!("✅ 项目创建成功!");
+        println!("项目名称: {}", project_name);
+        println!("项目类型: {}", self.template);
+        println!("项目路径: {}", project_dir.display());
+
+        if self.name.is_some() {
+            println!("\n进入项目目录:");
+            println!("  cd {}", project_name);
+        }
+
+        println!("\n下一步:");
+        println!("  jx install    # 安装依赖");
+        println!("  jx build      # 构建项目");
+        println!("  jx run        # 运行项目");
+
+        Ok(())
     }
-
-    // 创建项目目录
-    if name.is_some() {
-        fs::create_dir_all(&project_dir)?;
-    }
-
-    // 根据模板创建项目文件
-    match template.as_str() {
-        "maven" => create_maven_project(&project_dir, &project_name)?,
-        "gradle" => create_gradle_project(&project_dir, &project_name)?,
-        _ => return Err(anyhow::anyhow!("不支持的模板类型: {}", template)),
-    }
-
-    println!("✅ 项目创建成功!");
-    println!("项目名称: {}", project_name);
-    println!("项目类型: {}", template);
-    println!("项目路径: {}", project_dir.display());
-
-    if name.is_some() {
-        println!("\n进入项目目录:");
-        println!("  cd {}", project_name);
-    }
-
-    println!("\n下一步:");
-    println!("  jx install    # 安装依赖");
-    println!("  jx build      # 构建项目");
-    println!("  jx run        # 运行项目");
-
-    Ok(())
 }
 
 fn create_maven_project(project_dir: &Path, project_name: &str) -> Result<()> {
@@ -73,7 +85,7 @@ fn create_maven_project(project_dir: &Path, project_name: &str) -> Result<()> {
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 

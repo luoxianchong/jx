@@ -2,40 +2,55 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-pub fn execute(_file: Option<String>, _production: bool, force: bool) -> Result<()> {
-    let current_dir = std::env::current_dir()?;
+#[derive(clap::Args)]
+#[clap(about = "安装项目依赖")]
+pub struct InstallCommand {
+    #[clap(short, long, help = "指定依赖文件")]
+    pub file: Option<String>,
 
-    // 查找项目配置文件
-    let config_file = if current_dir.join("jx.toml").exists() {
-        "jx.toml"
-    } else if current_dir.join("pom.xml").exists() {
-        "pom.xml"
-    } else if current_dir.join("build.gradle").exists() {
-        "build.gradle"
-    } else {
-        return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-    };
+    #[clap(long, help = "仅安装生产依赖")]
+    pub production: bool,
 
-    println!("📦 开始安装依赖...");
-    println!("配置文件: {}", config_file);
+    #[clap(long, help = "强制重新安装")]
+    pub force: bool,
+}
 
-    // 根据配置文件类型选择安装方式
-    let result = if config_file == "pom.xml" {
-        install_from_maven(&current_dir, _production, force)
-    } else if config_file == "build.gradle" {
-        install_from_gradle(&current_dir, _production, force)
-    } else {
-        Err(anyhow::anyhow!("不支持的配置文件类型: {}", config_file))
-    };
+impl InstallCommand {
+    pub fn execute(&self) -> Result<()> {
+        let current_dir = std::env::current_dir()?;
 
-    match result {
-        Ok(_) => {
-            println!("✅ 依赖安装完成!");
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("❌ 安装失败: {}", e);
-            Err(e)
+        // 查找项目配置文件
+        let config_file = if current_dir.join("jx.toml").exists() {
+            "jx.toml"
+        } else if current_dir.join("pom.xml").exists() {
+            "pom.xml"
+        } else if current_dir.join("build.gradle").exists() {
+            "build.gradle"
+        } else {
+            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
+        };
+
+        println!("📦 开始安装依赖...");
+        println!("配置文件: {}", config_file);
+
+        // 根据配置文件类型选择安装方式
+        let result = if config_file == "pom.xml" {
+            install_from_maven(&current_dir, self.production, self.force)
+        } else if config_file == "build.gradle" {
+            install_from_gradle(&current_dir, self.production, self.force)
+        } else {
+            Err(anyhow::anyhow!("不支持的配置文件类型: {}", config_file))
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 依赖安装完成!");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 安装失败: {}", e);
+                Err(e)
+            }
         }
     }
 }
