@@ -4,7 +4,6 @@ use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest;
 use serde::Deserialize;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -83,15 +82,6 @@ pub enum VenvSubcommands {
     #[clap(about = "创建虚拟环境")]
     Create(VenvCreateArgs),
 
-    #[clap(about = "激活虚拟环境")]
-    Activate(VenvActivateArgs),
-
-    #[clap(about = "停用虚拟环境")]
-    Deactivate,
-
-    #[clap(about = "列出所有虚拟环境")]
-    List,
-
     #[clap(about = "删除虚拟环境")]
     Remove(VenvRemoveArgs),
 
@@ -115,23 +105,11 @@ pub struct VenvCreateArgs {
 }
 
 #[derive(clap::Args)]
-pub struct VenvActivateArgs {
-    #[clap(index = 1, help = "虚拟环境名称")]
-    pub name: Option<String>,
-
-    #[clap(short, long, help = "将激活脚本写入当前Shell的配置文件，实现永久激活")]
-    pub permanent: bool,
-}
-
-#[derive(clap::Args)]
-pub struct VenvRemoveArgs {
-    #[clap(index = 1, required = true, help = "虚拟环境名称")]
-    pub name: String,
-}
+pub struct VenvRemoveArgs {}
 
 #[derive(clap::Args)]
 pub struct VenvInfoArgs {
-    #[clap(index = 1, help = "虚拟环境名称")]
+    #[clap(index = 1, help = "虚拟环境名称 (已忽略，项目环境不需要名称)")]
     pub name: Option<String>,
 }
 
@@ -139,9 +117,6 @@ impl VenvCommand {
     pub async fn execute(&self, _verbose: bool) -> Result<()> {
         match &self.command {
             VenvSubcommands::Create(args) => args.execute().await,
-            VenvSubcommands::Activate(args) => args.execute(),
-            VenvSubcommands::Deactivate => deactivate(),
-            VenvSubcommands::List => list(),
             VenvSubcommands::Remove(args) => args.execute(),
             VenvSubcommands::Info(args) => args.execute(),
         }
@@ -160,15 +135,9 @@ impl VenvCreateArgs {
     }
 }
 
-impl VenvActivateArgs {
-    pub fn execute(&self) -> Result<()> {
-        activate(self.name.clone(), self.permanent)
-    }
-}
-
 impl VenvRemoveArgs {
     pub fn execute(&self) -> Result<()> {
-        remove(self.name.clone())
+        remove()
     }
 }
 
@@ -180,15 +149,13 @@ impl VenvInfoArgs {
 
 /// 创建Java虚拟环境
 pub async fn create(
-    name: Option<String>,
+    _name: Option<String>,
     java_version: String,
     build_tool: BuildTool,
 ) -> Result<()> {
-    let venv_name = name.unwrap_or_else(|| "default".to_string());
-    let venv_dir = get_venv_directory(&venv_name)?;
+    let venv_dir = std::env::current_dir()?.join(".jx");
 
     println!("🌱 创建Java虚拟环境...");
-    println!("名称: {}", venv_name);
     println!("Java版本: {}", java_version);
     match &build_tool {
         BuildTool::Maven(version) => println!("Maven版本: {}", version),
@@ -197,7 +164,7 @@ pub async fn create(
 
     // 检查虚拟环境是否已存在
     if venv_dir.exists() {
-        return Err(anyhow::anyhow!("虚拟环境 '{}' 已存在", venv_name));
+        return Err(anyhow::anyhow!("虚拟环境已存在于: {}", venv_dir.display()));
     }
 
     // 创建虚拟环境目录结构
@@ -226,7 +193,10 @@ pub async fn create(
         }
 
         // 创建激活脚本
-        create_activation_scripts(&venv_dir, &venv_name, &build_tool)?;
+        create_activation_scripts(&venv_dir, "", &build_tool)?;
+
+        // 创建激活标记文件
+        fs::write(venv_dir.join(".active"), "")?;
 
         Ok(())
     }
@@ -240,287 +210,52 @@ pub async fn create(
         return Err(err);
     }
 
-    println!("✅ 虚拟环境 '{}' 创建成功!", venv_name);
+    println!("✅ 虚拟环境创建成功!");
     println!("路径: {}", venv_dir.display());
     println!("");
-    println!("激活虚拟环境:");
-    println!("  jx venv activate {}", venv_name);
-    println!("  jx venv activate {} --permanent (-p)", venv_name);
-    println!("");
-    println!("停用虚拟环境:");
-    println!("  jx venv deactivate");
-
-    Ok(())
-}
-
-/// 激活虚拟环境
-pub fn activate(name: Option<String>, permanent: bool) -> Result<()> {
-    let venv_name = name.unwrap_or_else(|| "default".to_string());
-    let venv_dir = get_venv_directory(&venv_name)?;
-
-    if !venv_dir.exists() {
-        return Err(anyhow::anyhow!("虚拟环境 '{}' 不存在", venv_name));
-    }
-
-    println!("🔌 激活虚拟环境 '{}'...", venv_name);
-
-    // 设置环境变量
-    let bin_path = venv_dir.join("bin");
-
-    // 获取当前PATH
-    let current_path = env::var("PATH").unwrap_or_default();
-    let _new_path = format!("{}:{}", bin_path.display(), current_path);
-
-    // 设置JAVA_HOME
-    let java_home = venv_dir.join("lib").join("java");
-    if java_home.exists() {
-        // 检查是否是macOS结构
-        let java_home_path = if java_home.join("jdk").join("Contents").join("Home").exists() {
-            java_home.join("jdk").join("Contents").join("Home")
-        } else {
-            java_home.join("jdk")
-        };
-        env::set_var("JAVA_HOME", java_home_path.clone());
-        println!("设置 JAVA_HOME: {}", java_home_path.display());
-    }
-
-    // 设置MAVEN_HOME
-    let maven_home = venv_dir.join("lib").join("maven");
-    if maven_home.exists() {
-        env::set_var("MAVEN_HOME", maven_home.clone());
-        println!("设置 MAVEN_HOME: {}", maven_home.display());
-    }
-
-    // 设置GRADLE_HOME
-    let gradle_home = venv_dir.join("lib").join("gradle");
-    if gradle_home.exists() {
-        env::set_var("GRADLE_HOME", gradle_home.clone());
-        println!("设置 GRADLE_HOME: {}", gradle_home.display());
-    }
-
-    // 创建激活状态文件
-    let activation_file = get_jx_home()?.join(".active_venv");
-    fs::write(&activation_file, &venv_name)?;
-
-    println!("✅ 虚拟环境 '{}' 已激活", venv_name);
-    println!("");
-    if permanent {
-        match get_shell_profile_path() {
-            Some(profile) => match ensure_shell_profile_activation(&profile, &venv_name, &venv_dir)
-            {
-                Ok(true) => {
-                    println!("📝 已在 {} 中写入永久激活配置", profile.display());
-                    println!("请运行: source {} 使配置立即生效", profile.display());
-                }
-                Ok(false) => {
-                    println!("📝 永久激活配置已存在于 {}", profile.display());
-                    println!("若需立即生效，可运行: source {}", profile.display());
-                }
-                Err(err) => {
-                    println!("⚠️ 无法更新 {}: {}", profile.display(), err);
-                    println!("您可以手动运行: source {}/bin/activate", venv_dir.display());
-                }
-            },
-            None => {
-                println!("⚠️ 未能确定当前 shell 的配置文件。");
-                println!("请手动运行: source {}/bin/activate", venv_dir.display());
-            }
-        }
-    } else {
-        println!("注意: 环境变量已设置，但仅对当前shell会话有效");
-        println!(
-            "若需永久激活，请运行: jx venv activate {} --permanent (-p)",
-            venv_name
-        );
-    }
-    println!("");
-    println!("停用虚拟环境: jx venv deactivate");
-
-    Ok(())
-}
-
-/// 停用虚拟环境
-pub fn deactivate() -> Result<()> {
-    let activation_file = get_jx_home()?.join(".active_venv");
-
-    if !activation_file.exists() {
-        println!("⚠️ 当前没有激活的虚拟环境");
-        return Ok(());
-    }
-
-    let active_venv = fs::read_to_string(&activation_file)?.trim().to_string();
-    println!("🔌 停用虚拟环境 '{}'...", active_venv);
-
-    // 删除激活状态文件
-    fs::remove_file(activation_file)?;
-
-    // 清除环境变量
-    env::remove_var("JAVA_HOME");
-    env::remove_var("MAVEN_HOME");
-    env::remove_var("GRADLE_HOME");
-
-    if let Some(profile) = get_shell_profile_path() {
-        match clear_shell_profile_activation(&profile, &active_venv) {
-            Ok(true) => {
-                println!("🧹 已从 {} 中移除永久激活配置", profile.display());
-                println!("如需立即生效，请运行: source {}", profile.display());
-            }
-            Ok(false) => {
-                println!(
-                    "ℹ️ 在 {} 中未找到 '{}' 的永久激活配置",
-                    profile.display(),
-                    active_venv
-                );
-            }
-            Err(err) => {
-                println!("⚠️ 无法更新 {}: {}", profile.display(), err);
-            }
-        }
-    }
-
-    println!("✅ 虚拟环境已停用");
-    println!("");
-    println!("注意: 环境变量已清除，但仅对当前shell会话有效");
-    println!("要完全清除，请重新启动shell或手动清除环境变量");
-
-    Ok(())
-}
-
-/// 列出所有虚拟环境
-pub fn list() -> Result<()> {
-    let venv_base = get_venv_base_directory()?;
-
-    if !venv_base.exists() {
-        println!("📁 没有找到虚拟环境目录");
-        return Ok(());
-    }
-
-    println!("📋 可用的虚拟环境:");
-    println!("");
-
-    let mut venvs = Vec::new();
-    for entry in fs::read_dir(&venv_base)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let name = path.file_name().unwrap().to_string_lossy();
-            let config_file = path.join("conf").join("venv.toml");
-
-            if config_file.exists() {
-                if let Ok(config_content) = fs::read_to_string(&config_file) {
-                    let mut java_version = "未知".to_string();
-
-                    let mut build_tool_info = "未知".to_string();
-
-                    for line in config_content.lines() {
-                        if line.starts_with("java_version = \"") {
-                            java_version = line
-                                .trim_start_matches("java_version = \"")
-                                .trim_end_matches("\"")
-                                .to_string();
-                        } else if line.starts_with("build_tool = \"") {
-                            let tool_type = line
-                                .trim_start_matches("build_tool = \"")
-                                .trim_end_matches("\"")
-                                .to_string();
-                            if tool_type == "maven" {
-                                build_tool_info = format!(
-                                    "Maven: {}",
-                                    config_content
-                                        .lines()
-                                        .find(|l| l.starts_with("build_tool_version = \""))
-                                        .map(|l| l
-                                            .trim_start_matches("build_tool_version = \"")
-                                            .trim_end_matches("\""))
-                                        .unwrap_or("未知")
-                                );
-                            } else if tool_type == "gradle" {
-                                build_tool_info = format!(
-                                    "Gradle: {}",
-                                    config_content
-                                        .lines()
-                                        .find(|l| l.starts_with("build_tool_version = \""))
-                                        .map(|l| l
-                                            .trim_start_matches("build_tool_version = \"")
-                                            .trim_end_matches("\""))
-                                        .unwrap_or("未知")
-                                );
-                            }
-                        }
-                    }
-
-                    venvs.push((name.to_string(), java_version, build_tool_info));
-                }
-            }
-        }
-    }
-
-    if venvs.is_empty() {
-        println!("  没有找到虚拟环境");
-    } else {
-        // 检查当前激活的虚拟环境
-        let active_venv = get_active_venv()?;
-
-        for (name, java, build_tool) in venvs {
-            let status = if active_venv.as_ref().map(|s| s == &name).unwrap_or(false) {
-                "🔌 激活"
-            } else {
-                "   "
-            };
-            println!("{} {} (Java: {}, {})", status, name, java, build_tool);
-        }
-    }
+    println!("虚拟环境已自动激活。");
 
     Ok(())
 }
 
 /// 删除虚拟环境
-pub fn remove(name: String) -> Result<()> {
-    let venv_dir = get_venv_directory(&name)?;
+pub fn remove() -> Result<()> {
+    let venv_dir = std::env::current_dir()?.join(".jx");
 
     if !venv_dir.exists() {
-        return Err(anyhow::anyhow!("虚拟环境 '{}' 不存在", name));
-    }
-
-    // 检查是否正在使用
-    let active_venv = get_active_venv()?;
-    if active_venv.as_ref().map(|s| s == &name).unwrap_or(false) {
         return Err(anyhow::anyhow!(
-            "无法删除正在使用的虚拟环境 '{}'，请先停用",
-            name
+            "当前目录下不存在虚拟环境 (.jx/)"
         ));
     }
 
-    println!("🗑️ 删除虚拟环境 '{}'...", name);
+    // 检查是否正在使用
+    let active_file = venv_dir.join(".active");
+    if active_file.exists() {
+        println!("停用虚拟环境...");
+    }
+
+    println!("🗑️ 删除虚拟环境...");
     println!("路径: {}", venv_dir.display());
 
     // 递归删除目录
     fs::remove_dir_all(&venv_dir)?;
 
-    println!("✅ 虚拟环境 '{}' 已删除", name);
+    println!("✅ 虚拟环境已删除");
 
     Ok(())
 }
 
 /// 显示虚拟环境信息
-pub fn info(name: Option<String>) -> Result<()> {
-    let venv_name = name.unwrap_or_else(|| {
-        get_active_venv()
-            .unwrap_or(None)
-            .unwrap_or_else(|| "default".to_string())
-    });
-
-    let venv_dir = get_venv_directory(&venv_name)?;
+pub fn info(_name: Option<String>) -> Result<()> {
+    let venv_dir = std::env::current_dir()?.join(".jx");
 
     if !venv_dir.exists() {
-        return Err(anyhow::anyhow!("虚拟环境 '{}' 不存在", venv_name));
+        return Err(anyhow::anyhow!("当前目录没有虚拟环境 (.jx/ 不存在)"));
     }
 
-    println!("ℹ️ 虚拟环境信息: {}", venv_name);
+    println!("ℹ️ 项目虚拟环境信息");
     println!("");
 
-    // 基本信息
     println!("路径: {}", venv_dir.display());
 
     let metadata = fs::metadata(&venv_dir)?;
@@ -529,7 +264,6 @@ pub fn info(name: Option<String>) -> Result<()> {
         println!("创建时间: {}", datetime.format("%Y-%m-%d %H:%M:%S"));
     }
 
-    // 配置信息
     let config_file = venv_dir.join("conf").join("venv.toml");
     if config_file.exists() {
         let config_content = fs::read_to_string(&config_file)?;
@@ -550,12 +284,7 @@ pub fn info(name: Option<String>) -> Result<()> {
         }
     }
 
-    // 状态信息
-    let active_venv = get_active_venv()?;
-    let is_active = active_venv
-        .as_ref()
-        .map(|s| s == &venv_name)
-        .unwrap_or(false);
+    let is_active = venv_dir.join(".active").exists();
     println!("");
     println!(
         "状态: {}",
@@ -566,7 +295,6 @@ pub fn info(name: Option<String>) -> Result<()> {
         }
     );
 
-    // 磁盘使用情况
     if let Ok(size) = calculate_directory_size(&venv_dir) {
         println!("大小: {}", format_file_size(size));
     }
@@ -682,18 +410,6 @@ fn rename_extracted_gradle(extract_dir: &Path, target_dir: &Path) -> Result<()> 
     Err(anyhow::anyhow!("未找到解压后的Gradle目录"))
 }
 
-fn get_venv_base_directory() -> Result<PathBuf> {
-    let jx_home = get_jx_home()?;
-    let venv_base = jx_home.join("venvs");
-    fs::create_dir_all(&venv_base)?;
-    Ok(venv_base)
-}
-
-fn get_venv_directory(name: &str) -> Result<PathBuf> {
-    let venv_base = get_venv_base_directory()?;
-    Ok(venv_base.join(name))
-}
-
 fn get_active_venv() -> Result<Option<String>> {
     let activation_file = get_jx_home()?.join(".active_venv");
     if activation_file.exists() {
@@ -702,115 +418,6 @@ fn get_active_venv() -> Result<Option<String>> {
     } else {
         Ok(None)
     }
-}
-
-fn get_shell_profile_path() -> Option<PathBuf> {
-    let shell_path = env::var("SHELL").ok();
-    let shell_name = shell_path
-        .as_deref()
-        .and_then(|p| Path::new(p).file_name())
-        .and_then(|s| s.to_str())
-        .unwrap_or("sh");
-
-    let relative = match shell_name {
-        "zsh" => PathBuf::from(".zshrc"),
-        "bash" => PathBuf::from(".bashrc"),
-        "fish" => PathBuf::from(".config/fish/config.fish"),
-        "tcsh" => PathBuf::from(".tcshrc"),
-        "csh" => PathBuf::from(".cshrc"),
-        _ => PathBuf::from(".profile"),
-    };
-
-    let home = dirs::home_dir()?;
-    Some(home.join(relative))
-}
-
-fn ensure_shell_profile_activation(
-    profile_path: &Path,
-    venv_name: &str,
-    venv_dir: &Path,
-) -> Result<bool> {
-    if let Some(parent) = profile_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let activate_script = venv_dir.join("bin").join("activate");
-    let block = format!(
-        "## >>> jx venv {name}\nsource \"{path}\"\n## <<< jx venv {name}\n",
-        name = venv_name,
-        path = activate_script.display()
-    );
-
-    let original = if profile_path.exists() {
-        fs::read_to_string(profile_path)?
-    } else {
-        String::new()
-    };
-
-    let (mut cleaned, _) = strip_shell_profile_block(&original, venv_name);
-
-    if !cleaned.is_empty() && !cleaned.ends_with('\n') {
-        cleaned.push('\n');
-    }
-
-    cleaned.push_str(&block);
-
-    let changed = cleaned != original;
-    if changed {
-        fs::write(profile_path, cleaned)?;
-    }
-
-    Ok(changed)
-}
-
-fn clear_shell_profile_activation(profile_path: &Path, venv_name: &str) -> Result<bool> {
-    if !profile_path.exists() {
-        return Ok(false);
-    }
-
-    let original = fs::read_to_string(profile_path)?;
-    let (cleaned, changed) = strip_shell_profile_block(&original, venv_name);
-
-    if changed {
-        fs::write(profile_path, cleaned)?;
-    }
-
-    Ok(changed)
-}
-
-fn strip_shell_profile_block(content: &str, venv_name: &str) -> (String, bool) {
-    let start_marker = format!("## >>> jx venv {}", venv_name);
-    let end_marker = format!("## <<< jx venv {}", venv_name);
-
-    let mut result = String::with_capacity(content.len());
-    let mut in_block = false;
-    let mut changed = false;
-
-    for chunk in content.split_inclusive('\n') {
-        let line = chunk.trim_end_matches('\n').trim_end_matches('\r');
-
-        if !in_block && line == start_marker {
-            in_block = true;
-            changed = true;
-            continue;
-        }
-
-        if in_block {
-            if line == end_marker {
-                in_block = false;
-            }
-            changed = true;
-            continue;
-        }
-
-        result.push_str(chunk);
-    }
-
-    if in_block {
-        changed = true;
-    }
-
-    (result, changed)
 }
 
 fn create_venv_config(venv_dir: &Path, java_version: &str, build_tool: &BuildTool) -> Result<()> {
