@@ -67,7 +67,10 @@ pub fn check_symlink_validity(bin_dir: &Path) -> Result<Vec<String>> {
         if path.is_symlink() {
             let target = fs::read_link(&path)?;
             if !target.exists() {
-                broken.push(path.file_name().unwrap().to_string_lossy().to_string());
+                // 使用安全的名称提取，避免 panic
+                if let Some(name) = path.file_name() {
+                    broken.push(name.to_string_lossy().to_string());
+                }
             }
         }
     }
@@ -79,13 +82,14 @@ pub fn check_symlink_validity(bin_dir: &Path) -> Result<Vec<String>> {
 fn resolve_java_home(bin_dir: &Path) -> Option<PathBuf> {
     let java_symlink = bin_dir.join("java");
     if java_symlink.is_symlink() {
-        let target = fs::read_link(&java_symlink).ok()?;
+        // 使用 canonicalize 获取绝对路径，处理相对路径符号链接
+        let target = fs::canonicalize(&java_symlink).ok()?;
         // macOS: .../Contents/Home/bin/java -> Contents/Home
         // Linux: .../bin/java -> 父目录
         if target.ends_with("Contents/Home/bin/java") {
-            Some(target.parent().unwrap().parent().unwrap().to_path_buf())
+            target.parent().and_then(|p| p.parent()).map(|p| p.to_path_buf())
         } else if target.ends_with("bin/java") {
-            Some(target.parent().unwrap().parent().unwrap().to_path_buf())
+            target.parent().and_then(|p| p.parent()).map(|p| p.to_path_buf())
         } else {
             None
         }
@@ -98,10 +102,11 @@ fn resolve_java_home(bin_dir: &Path) -> Option<PathBuf> {
 fn resolve_maven_home(bin_dir: &Path) -> Option<PathBuf> {
     let mvn_symlink = bin_dir.join("mvn");
     if mvn_symlink.is_symlink() {
-        let target = fs::read_link(&mvn_symlink).ok()?;
+        // 使用 canonicalize 获取绝对路径
+        let target = fs::canonicalize(&mvn_symlink).ok()?;
         // .../bin/mvn -> 父目录
         if target.ends_with("bin/mvn") {
-            Some(target.parent().unwrap().parent().unwrap().to_path_buf())
+            target.parent().and_then(|p| p.parent()).map(|p| p.to_path_buf())
         } else {
             None
         }
@@ -114,10 +119,11 @@ fn resolve_maven_home(bin_dir: &Path) -> Option<PathBuf> {
 fn resolve_gradle_home(bin_dir: &Path) -> Option<PathBuf> {
     let gradle_symlink = bin_dir.join("gradle");
     if gradle_symlink.is_symlink() {
-        let target = fs::read_link(&gradle_symlink).ok()?;
+        // 使用 canonicalize 获取绝对路径
+        let target = fs::canonicalize(&gradle_symlink).ok()?;
         // .../bin/gradle -> 父目录
         if target.ends_with("bin/gradle") {
-            Some(target.parent().unwrap().parent().unwrap().to_path_buf())
+            target.parent().and_then(|p| p.parent()).map(|p| p.to_path_buf())
         } else {
             None
         }
