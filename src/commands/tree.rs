@@ -33,7 +33,7 @@ impl TreeCommand {
             println!("  - 确保项目已正确配置");
             println!("  - 运行 'jx install' 安装依赖");
             println!("  - 检查 pom.xml 或 build.gradle 文件");
-            return Ok(())
+            return Ok(());
         }
 
         // 显示依赖树

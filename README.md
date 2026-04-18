@@ -2,16 +2,16 @@
 
 jx是一个用Rust编写的快速Java包管理器，类似于Python的uv工具。它提供了现代化的依赖管理、项目构建和包管理功能。
 
-## 🚀 特性
+## 特性
 
 - **快速**: 用Rust编写，性能优异
-- **现代化**: 支持Maven和Gradle项目
-- **智能缓存**: 高效的依赖缓存系统
-- **依赖解析**: 自动解析传递依赖
+- **虚拟环境管理**: 自动下载和管理Java/Maven/Gradle版本，无需系统预装
+- **智能缓存**: 高效的依赖缓存系统，避免重复下载
+- **依赖解析**: 自动解析传递依赖并可视化展示
 - **项目模板**: 快速创建Maven和Gradle项目
-- **统一接口**: 统一的命令行接口管理不同类型的项目
+- **环境自愈**: 自动检测和修复损坏的符号链接
 
-## 📦 安装
+## 安装
 
 ### 从源码编译
 
@@ -30,11 +30,36 @@ cargo install --path .
 ### 系统要求
 
 - Rust 1.70+
-- Java 8+
-- Maven 3.6+ (可选)
-- Gradle 7+ (可选)
+- curl（用于下载Java/Maven/Gradle）
+- tar 或 unzip（用于解压）
 
-## 🎯 快速开始
+**注意**: 使用虚拟环境功能时，无需系统预装Java/Maven/Gradle，jx会自动下载和管理。
+
+## 快速开始
+
+### 创建虚拟环境
+
+```bash
+# 在当前项目目录创建虚拟环境（默认Java 17 + Maven）
+jx venv create
+
+# 指定Java版本
+jx venv create --java-version 21
+
+# 使用Gradle代替Maven
+jx venv create --java-version 17 --gradle-version 8.5
+
+# 查看虚拟环境信息
+jx venv info
+
+# 删除虚拟环境
+jx venv remove
+```
+
+虚拟环境创建后会在项目目录生成 `.jx/` 目录，包含:
+- `bin/` - Java/Maven/Gradle的符号链接
+- `venv.toml` - 环境配置文件
+- `.active` - 激活标记
 
 ### 创建新项目
 
@@ -81,8 +106,11 @@ jx add org.apache.commons:commons-lang3:3.12.0 --scope runtime
 # 构建项目
 jx build
 
-# 运行项目
+# 运行项目（自动使用.jx环境）
 jx run
+
+# 运行指定主类
+jx run com.example.Main
 
 # 运行测试
 jx test
@@ -91,7 +119,23 @@ jx test
 jx clean
 ```
 
-## 📚 命令参考
+### 查看依赖树
+
+```bash
+# 显示直接依赖
+jx tree
+
+# 显示传递依赖
+jx tree --transitive
+```
+
+## 命令参考
+
+### 虚拟环境管理
+
+- `jx venv create [--java-version <8|11|17|21|25>] [--maven-version <VERSION>] [--gradle-version <VERSION>]` - 创建虚拟环境
+- `jx venv remove` - 删除虚拟环境
+- `jx venv info` - 显示虚拟环境信息
 
 ### 项目管理
 
@@ -125,15 +169,45 @@ jx clean
 - `--help` - 显示帮助信息
 - `--version` - 显示版本信息
 
-## 🔧 配置文件
+## 虚拟环境特性
+
+jx的虚拟环境功能类似于Python的venv，提供以下优势:
+
+### 自动下载和安装
+
+- 从Adoptium API获取Java JDK下载链接
+- 自动下载并解压到 `~/.jx/cache/` 目录
+- 支持Java 8、11、17、21、25版本
+- 支持x64和aarch64架构
+
+### 智能缓存
+
+所有下载的工具都会缓存在 `~/.jx/cache/`:
+- `java/` - Java JDK缓存
+- `maven/` - Maven缓存
+- `gradle/` - Gradle缓存
+- `archives/` - 原始压缩包缓存
+
+不同项目可以共享同一缓存，避免重复下载。
+
+### 环境自愈
+
+当符号链接损坏时（例如缓存被手动删除），jx会:
+- 自动检测损坏的符号链接
+- 重新下载缺失的工具
+- 重建符号链接
+
+在运行 `jx run` 等命令时会自动触发环境检查和修复。
+
+## 配置文件
 
 jx使用`jx.toml`配置文件来管理项目设置：
 
 ```toml
 [project]
 name = "my-java-project"
-type = "maven"
 version = "1.0.0"
+description = "A Java project"
 java_version = "11"
 
 [build]
@@ -151,63 +225,70 @@ org.apache.commons:commons-lang3 = "3.12.0"
 junit:junit = "4.13.2"
 
 [repositories]
-# Maven仓库
 maven_central = "https://repo1.maven.org/maven2/"
-jcenter = "https://jcenter.bintray.com/"
 ```
 
-## 🏗️ 项目结构
+虚拟环境使用 `.jx/venv.toml`:
+
+```toml
+java_version = "17"
+maven_version = "3.9.9"
+gradle_version = ""
+
+[cache_paths]
+java = "jdk-17-mac-x64"
+maven = "apache-maven-3.9.9"
+gradle = ""
+```
+
+## 项目结构
 
 jx支持标准的Maven和Gradle项目结构：
 
 ```
 my-project/
-├── jx.toml              # jx配置文件
-├── pom.xml              # Maven配置 (可选)
-├── build.gradle         # Gradle配置 (可选)
+├── .jx/                  # 虚拟环境目录
+│   ├── bin/              # 工具符号链接
+│   ├── venv.toml         # 环境配置
+│   └── .active           # 激活标记
+├── jx.toml               # jx配置文件
+├── pom.xml               # Maven配置 (可选)
+├── build.gradle          # Gradle配置 (可选)
 ├── src/
 │   ├── main/
-│   │   ├── java/        # Java源码
-│   │   └── resources/   # 资源文件
+│   │   ├── java/         # Java源码
+│   │   └── resources/    # 资源文件
 │   └── test/
-│       ├── java/        # 测试源码
-│       └── resources/   # 测试资源
-├── target/              # 构建输出
-└── lib/                 # 依赖库
+│       ├── java/         # 测试源码
+│       └── resources/    # 测试资源
+├── target/               # 构建输出
+└── lib/                  # 依赖库
 ```
 
-## 🔍 依赖搜索
-
-jx集成了Maven Central搜索功能：
-
-```bash
-# 搜索Spring相关依赖
-jx search spring
-
-# 限制搜索结果数量
-jx search junit --limit 10
-```
-
-## 📊 性能特性
-
-- **并行下载**: 使用异步I/O并行下载依赖
-- **智能缓存**: 避免重复下载相同的依赖
-- **增量构建**: 只重新构建修改的文件
-- **内存优化**: 高效的内存使用和垃圾回收
-
-## 🛠️ 开发
+## 开发
 
 ### 项目结构
 
 ```
 src/
 ├── main.rs              # 主入口
+├── cli.rs               # CLI定义
 ├── commands/            # 命令实现
 │   ├── mod.rs
-│   ├── init.rs
-│   ├── install.rs
-│   ├── add.rs
-│   └── ...
+│   ├── init.rs          # 项目初始化
+│   ├── install.rs       # 依赖安装
+│   ├── add.rs           # 添加依赖
+│   ├── remove.rs        # 移除依赖
+│   ├── update.rs        # 更新依赖
+│   ├── build.rs         # 构建项目
+│   ├── run.rs           # 运行项目
+│   ├── test.rs          # 运行测试
+│   ├── clean.rs         # 清理
+│   ├── info.rs          # 项目信息
+│   ├── tree.rs          # 依赖树
+│   ├── search.rs        # 搜索依赖
+│   ├── venv.rs          # 虚拟环境管理
+│   └── publish.rs       # 发布
 ├── config.rs            # 配置管理
 ├── dependency.rs        # 依赖模型
 ├── download.rs          # 下载管理
@@ -216,15 +297,9 @@ src/
 ├── project.rs           # 项目管理
 ├── registry.rs          # 仓库管理
 ├── resolve.rs           # 依赖解析
+├── environment.rs       # 环境检测与自愈
 └── utils.rs             # 工具函数
 ```
-
-### 添加新命令
-
-1. 在`src/commands/`目录下创建新的命令文件
-2. 实现`execute`函数
-3. 在`src/commands/mod.rs`中导出新模块
-4. 在`src/main.rs`中添加命令处理
 
 ### 测试
 
@@ -234,12 +309,9 @@ cargo test
 
 # 运行特定测试
 cargo test test_name
-
-# 运行集成测试
-cargo test --test integration_tests
 ```
 
-## 🤝 贡献
+## 贡献
 
 欢迎贡献代码！请遵循以下步骤：
 
@@ -249,24 +321,16 @@ cargo test --test integration_tests
 4. 推送到分支 (`git push origin feature/amazing-feature`)
 5. 创建Pull Request
 
-## 📄 许可证
+## 许可证
 
 本项目采用MIT许可证 - 查看[LICENSE](LICENSE)文件了解详情。
 
-## 🙏 致谢
+## 致谢
 
-- 感谢[Maven](https://maven.apache.org/)和[Gradle](https://gradle.org/)项目提供的灵感
-- 感谢[Rust](https://rust-lang.org/)社区提供的优秀工具链
-- 感谢所有贡献者的辛勤工作
-
-## 📞 支持
-
-如果您遇到问题或有建议，请：
-
-- 查看[Issues](https://github.com/your-username/jx/issues)
-- 创建新的Issue
-- 联系维护团队
+- 感谢[Maven](https://maven.apache.org/)和[Gradle](https://gradle.org/)项目
+- 感谢[Adoptium](https://adoptium.net/)提供的Java JDK
+- 感谢[Rust](https://rust-lang.org/)社区
 
 ---
 
-**jx** - 让Java开发更快速、更简单！ 🚀
+**jx** - 让Java开发更快速、更简单！
