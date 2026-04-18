@@ -402,10 +402,16 @@ pub fn remove() -> Result<()> {
         return Err(anyhow::anyhow!("当前目录下不存在虚拟环境 (.jx/)"));
     }
 
-    // 检查是否正在使用
-    let active_file = venv_dir.join(".active");
-    if active_file.exists() {
-        println!("停用虚拟环境...");
+    // 确认删除
+    println!("此操作将删除 .jx/ 目录及其所有工具链接，是否继续？ [y/N]");
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+
+    let answer = input.trim().to_lowercase();
+    if answer != "y" && answer != "yes" {
+        println!("已取消删除");
+        return Ok(());
     }
 
     println!("🗑️ 删除虚拟环境...");
