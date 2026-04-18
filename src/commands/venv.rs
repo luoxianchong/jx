@@ -275,7 +275,7 @@ pub struct VenvCreateArgs {
         long,
         alias = "jv",
         default_value = "17",
-        help = "Java版本 (8, 11, 17, 21, 25)"
+        help = "Java版本 (8, 11, 17, 21, 25, 26)"
     )]
     pub java_version: String,
 
@@ -498,16 +498,6 @@ fn get_cache_directory() -> Result<PathBuf> {
     fs::create_dir_all(&cache_dir)?;
     Ok(cache_dir)
 }
-
-/**fn get_active_venv() -> Result<Option<String>> {
-    let activation_file = get_jx_home()?.join(".active_venv");
-    if activation_file.exists() {
-        let content = fs::read_to_string(&activation_file)?;
-        Ok(Some(content.trim().to_string()))
-    } else {
-        Ok(None)
-    }
-}*/
 
 fn create_venv_config(venv_dir: &Path, java_version: &str, build_tool: &BuildTool) -> Result<()> {
     let (maven_version, gradle_version) = match build_tool {

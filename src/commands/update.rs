@@ -248,36 +248,6 @@ struct DependencyInfo {
     version: String,
 }
 
-fn parse_dependency_coordinate(coordinate: &str) -> Result<DependencyInfo> {
-    let parts: Vec<&str> = coordinate.split(':').collect();
-
-    match parts.len() {
-        2 => Ok(DependencyInfo {
-            group_id: parts[0].to_string(),
-            artifact_id: parts[1].to_string(),
-            version: String::new(),
-        }),
-        _ => Err(anyhow::anyhow!(
-            "无效的依赖坐标格式，应为 groupId:artifactId"
-        )),
-    }
-}
-
-fn parse_dependency_coordinate_with_version(coordinate: &str) -> Result<DependencyInfo> {
-    let parts: Vec<&str> = coordinate.split(':').collect();
-
-    match parts.len() {
-        3 => Ok(DependencyInfo {
-            group_id: parts[0].to_string(),
-            artifact_id: parts[1].to_string(),
-            version: parts[2].to_string(),
-        }),
-        _ => Err(anyhow::anyhow!(
-            "无效的依赖坐标格式，必须指定版本: groupId:artifactId:version"
-        )),
-    }
-}
-
 fn parse_dependency_coordinate_auto(coordinate: &str) -> Result<DependencyInfo> {
     let parts: Vec<&str> = coordinate.split(':').collect();
 
