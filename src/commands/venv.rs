@@ -847,7 +847,7 @@ fn create_gradle_bin_symlinks(gradle_dir: &Path, bin_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn heal_venv(venv_dir: &Path) -> Result<()> {
+pub fn heal_venv(venv_dir: &Path) -> Result<()> {
     println!("🔧 修复虚拟环境...");
     
     let config = load_venv_config(&venv_dir.join("venv.toml"))?;

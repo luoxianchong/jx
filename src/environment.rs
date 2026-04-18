@@ -138,8 +138,7 @@ pub fn prepend_to_path(bin_dir: &Path) -> String {
     format!("{}:{}", bin_dir.display(), current_path)
 }
 
-/// 自愈 venv 环境（存根，将在 Task 2 实现）
-fn heal_venv(_venv_dir: &Path) -> Result<()> {
-    // TODO: Task 2 将实现完整的自愈逻辑
-    Ok(())
+/// 自愈 venv 环境（调用 venv.rs 中的实现）
+pub fn heal_venv(venv_dir: &Path) -> Result<()> {
+    crate::commands::venv::heal_venv(venv_dir)
 }
