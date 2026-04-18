@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod dependency;
 mod download;
+mod environment;
 mod install;
 mod lock;
 mod project;
