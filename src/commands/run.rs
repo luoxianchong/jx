@@ -1,3 +1,4 @@
+use crate::environment::{prepare_project_environment, EnvConfig, prepend_to_path};
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -16,24 +17,29 @@ impl RunCommand {
     pub fn execute(&self) -> Result<()> {
         let current_dir = std::env::current_dir()?;
 
-        // 查找项目配置文件
-        let config_file = if current_dir.join("jx.toml").exists() {
-            "jx.toml"
-        } else if current_dir.join("pom.xml").exists() {
-            "pom.xml"
-        } else if current_dir.join("build.gradle").exists() {
-            "build.gradle"
-        } else {
-            return Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"));
-        };
+        // 检测并准备项目环境
+        let env_config = prepare_project_environment()?;
 
-        println!("🚀 运行项目...");
+        if let Some(config) = env_config {
+            // 使用 .jx/ 环境执行
+            self.run_with_env(&current_dir, &config)?;
+        } else {
+            // 原有逻辑（无 .jx/ 环境）
+            self.run_without_env(&current_dir)?;
+        }
+        Ok(())
+    }
+
+    fn run_with_env(&self, project_dir: &Path, config: &EnvConfig) -> Result<()> {
+        println!("🚀 运行项目（使用 .jx 环境）...");
+
+        // 查找项目配置文件
+        let config_file = self.find_config_file(project_dir)?;
 
         let class_to_run = if let Some(ref class) = self.main_class {
             class.clone()
         } else {
-            // 从配置文件获取主类
-            get_main_class_from_config(&current_dir, config_file)?
+            get_main_class_from_config(project_dir, &config_file)?
         };
 
         println!("主类: {}", class_to_run);
@@ -41,11 +47,11 @@ impl RunCommand {
             println!("参数: {}", self.args.join(" "));
         }
 
-        // 根据配置文件类型运行项目
+        // 根据配置文件类型运行项目（带环境变量）
         let result = match config_file {
-            "jx.toml" => run_jx_project(&current_dir, &class_to_run, &self.args),
-            "pom.xml" => run_maven_project(&current_dir, &class_to_run, &self.args),
-            "build.gradle" => run_gradle_project(&current_dir, &class_to_run, &self.args),
+            "jx.toml" => run_jx_project_with_env(project_dir, &class_to_run, &self.args, config),
+            "pom.xml" => run_maven_project_with_env(project_dir, &class_to_run, &self.args, config),
+            "build.gradle" => run_gradle_project_with_env(project_dir, &class_to_run, &self.args, config),
             _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
         };
 
@@ -58,6 +64,55 @@ impl RunCommand {
                 eprintln!("❌ 运行失败: {}", e);
                 Err(e)
             }
+        }
+    }
+
+    fn run_without_env(&self, project_dir: &Path) -> Result<()> {
+        println!("🚀 运行项目...");
+
+        // 查找项目配置文件
+        let config_file = self.find_config_file(project_dir)?;
+
+        let class_to_run = if let Some(ref class) = self.main_class {
+            class.clone()
+        } else {
+            get_main_class_from_config(project_dir, &config_file)?
+        };
+
+        println!("主类: {}", class_to_run);
+        if !self.args.is_empty() {
+            println!("参数: {}", self.args.join(" "));
+        }
+
+        // 根据配置文件类型运行项目（原有逻辑）
+        let result = match config_file {
+            "jx.toml" => run_jx_project(project_dir, &class_to_run, &self.args),
+            "pom.xml" => run_maven_project(project_dir, &class_to_run, &self.args),
+            "build.gradle" => run_gradle_project(project_dir, &class_to_run, &self.args),
+            _ => Err(anyhow::anyhow!("不支持的配置文件类型")),
+        };
+
+        match result {
+            Ok(_) => {
+                println!("✅ 项目运行完成!");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("❌ 运行失败: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    fn find_config_file(&self, project_dir: &Path) -> Result<&str> {
+        if project_dir.join("jx.toml").exists() {
+            Ok("jx.toml")
+        } else if project_dir.join("pom.xml").exists() {
+            Ok("pom.xml")
+        } else if project_dir.join("build.gradle").exists() {
+            Ok("build.gradle")
+        } else {
+            Err(anyhow::anyhow!("找不到项目配置文件，请先运行 'jx init'"))
         }
     }
 }
@@ -218,4 +273,117 @@ fn check_command_exists(command: &str) -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+fn run_jx_project_with_env(project_dir: &Path, main_class: &str, args: &[String], config: &EnvConfig) -> Result<()> {
+    let config_path = project_dir.join("jx.toml");
+    let config_content = std::fs::read_to_string(&config_path)?;
+
+    if config_content.contains("type = \"maven\"") {
+        run_maven_project_with_env(project_dir, main_class, args, config)
+    } else if config_content.contains("type = \"gradle\"") {
+        run_gradle_project_with_env(project_dir, main_class, args, config)
+    } else {
+        Err(anyhow::anyhow!("在jx.toml中找不到有效的项目类型"))
+    }
+}
+
+fn run_maven_project_with_env(project_dir: &Path, main_class: &str, args: &[String], config: &EnvConfig) -> Result<()> {
+    println!("使用Maven运行项目...");
+
+    // 先编译项目
+    println!("编译项目...");
+    let mut compile_cmd = Command::new("mvn");
+    compile_cmd.arg("compile");
+    compile_cmd.env("PATH", prepend_to_path(&config.bin_dir));
+    if let Some(java_home) = &config.java_home {
+        compile_cmd.env("JAVA_HOME", java_home);
+    }
+    compile_cmd.current_dir(project_dir);
+
+    let compile_output = compile_cmd.output().context("Maven编译失败")?;
+
+    if !compile_output.status.success() {
+        let error = String::from_utf8_lossy(&compile_output.stderr);
+        return Err(anyhow::anyhow!("Maven编译失败: {}", error));
+    }
+
+    // 运行项目
+    println!("运行项目...");
+    println!("──────────────────────────────────────────");
+
+    let mut mvn_cmd = Command::new("mvn");
+    mvn_cmd.arg("exec:java");
+    mvn_cmd.arg(format!("-Dexec.mainClass={}", main_class));
+    mvn_cmd.env("PATH", prepend_to_path(&config.bin_dir));
+    if let Some(java_home) = &config.java_home {
+        mvn_cmd.env("JAVA_HOME", java_home);
+    }
+
+    if !args.is_empty() {
+        let args_str = args.join(" ");
+        mvn_cmd.arg(format!("-Dexec.args={}", args_str));
+    }
+
+    mvn_cmd.current_dir(project_dir);
+
+    let status = mvn_cmd.status().context("Maven运行失败")?;
+
+    println!("──────────────────────────────────────────");
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("程序执行失败"));
+    }
+
+    Ok(())
+}
+
+fn run_gradle_project_with_env(project_dir: &Path, _main_class: &str, args: &[String], config: &EnvConfig) -> Result<()> {
+    println!("使用Gradle运行项目...");
+
+    // 先编译项目
+    println!("编译项目...");
+    let mut compile_cmd = Command::new("gradle");
+    compile_cmd.arg("compileJava");
+    compile_cmd.env("PATH", prepend_to_path(&config.bin_dir));
+    if let Some(java_home) = &config.java_home {
+        compile_cmd.env("JAVA_HOME", java_home);
+    }
+    compile_cmd.current_dir(project_dir);
+
+    let compile_output = compile_cmd.output().context("Gradle编译失败")?;
+
+    if !compile_output.status.success() {
+        let error = String::from_utf8_lossy(&compile_output.stderr);
+        return Err(anyhow::anyhow!("Gradle编译失败: {}", error));
+    }
+
+    // 运行项目
+    println!("运行项目...");
+    println!("──────────────────────────────────────────");
+
+    let mut gradle_cmd = Command::new("gradle");
+    gradle_cmd.arg("run");
+    gradle_cmd.env("PATH", prepend_to_path(&config.bin_dir));
+    if let Some(java_home) = &config.java_home {
+        gradle_cmd.env("JAVA_HOME", java_home);
+    }
+
+    if !args.is_empty() {
+        let args_str = args.join(" ");
+        gradle_cmd.arg("--args");
+        gradle_cmd.arg(&args_str);
+    }
+
+    gradle_cmd.current_dir(project_dir);
+
+    let status = gradle_cmd.status().context("Gradle运行失败")?;
+
+    println!("──────────────────────────────────────────");
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("程序执行失败"));
+    }
+
+    Ok(())
 }
