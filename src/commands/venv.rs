@@ -79,8 +79,7 @@ struct CachePaths {
 
 fn load_venv_config(path: &Path) -> Result<VenvConfig> {
     let content = fs::read_to_string(path)?;
-    let config: VenvConfig = toml::from_str(&content)
-        .context("解析 venv.toml 失败")?;
+    let config: VenvConfig = toml::from_str(&content).context("解析 venv.toml 失败")?;
     Ok(config)
 }
 
@@ -96,12 +95,11 @@ fn create_symlink(source: &Path, target: &Path) -> Result<()> {
 
     #[cfg(windows)]
     {
-        std::os::windows::fs::symlink_file(source, target)
-            .or_else(|_| {
-                // Windows 上如果符号链接失败，复制文件
-                fs::copy(source, target)?;
-                Ok(())
-            })?;
+        std::os::windows::fs::symlink_file(source, target).or_else(|_| {
+            // Windows 上如果符号链接失败，复制文件
+            fs::copy(source, target)?;
+            Ok(())
+        })?;
     }
 
     Ok(())
@@ -109,11 +107,11 @@ fn create_symlink(source: &Path, target: &Path) -> Result<()> {
 
 fn check_symlink_validity(bin_dir: &Path) -> Result<Vec<String>> {
     let mut broken = Vec::new();
-    
+
     for entry in fs::read_dir(bin_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_symlink() {
             let target = fs::read_link(&path)?;
             if !target.exists() {
@@ -121,7 +119,7 @@ fn check_symlink_validity(bin_dir: &Path) -> Result<Vec<String>> {
             }
         }
     }
-    
+
     Ok(broken)
 }
 
@@ -129,42 +127,64 @@ fn extract_to_cache(archive_path: &Path, target_dir: &Path, prefix: &str) -> Res
     if target_dir.exists() {
         fs::remove_dir_all(target_dir)?;
     }
-    
+
     let filename = archive_path.file_name().unwrap().to_string_lossy();
     let parent = target_dir.parent().unwrap();
-    
+
     if filename.ends_with(".tar.gz") {
         let output = Command::new("tar")
-            .args(&["-xzf", archive_path.to_str().unwrap(), "-C", parent.to_str().unwrap()])
+            .args(&[
+                "-xzf",
+                archive_path.to_str().unwrap(),
+                "-C",
+                parent.to_str().unwrap(),
+            ])
             .output()
             .context("解压失败")?;
-        
+
         if !output.status.success() {
-            return Err(anyhow::anyhow!("解压失败: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(anyhow::anyhow!(
+                "解压失败: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
     } else if filename.ends_with(".zip") {
         let output = Command::new("unzip")
-            .args(&["-q", archive_path.to_str().unwrap(), "-d", parent.to_str().unwrap()])
+            .args(&[
+                "-q",
+                archive_path.to_str().unwrap(),
+                "-d",
+                parent.to_str().unwrap(),
+            ])
             .output()
             .context("解压失败")?;
-        
+
         if !output.status.success() {
-            return Err(anyhow::anyhow!("解压失败: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(anyhow::anyhow!(
+                "解压失败: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
     } else {
         return Err(anyhow::anyhow!("不支持的压缩格式"));
     }
-    
+
     // 查找并重命名解压后的目录
     for entry in fs::read_dir(parent)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir() && path.file_name().unwrap().to_string_lossy().starts_with(prefix) {
+        if path.is_dir()
+            && path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(prefix)
+        {
             fs::rename(path, target_dir)?;
             break;
         }
     }
-    
+
     Ok(())
 }
 
@@ -172,7 +192,7 @@ fn set_java_bin_permissions(java_dir: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        
+
         let bin_dir = find_java_bin_dir(java_dir);
         if bin_dir.exists() {
             for entry in fs::read_dir(&bin_dir)? {
@@ -203,18 +223,18 @@ fn find_java_bin(java_dir: &Path) -> PathBuf {
 
 fn create_java_bin_symlinks(java_dir: &Path, bin_dir: &Path) -> Result<()> {
     let jdk_bin = find_java_bin_dir(java_dir);
-    
+
     let commands = ["java", "javac", "jar", "javadoc", "keytool"];
-    
+
     for cmd in &commands {
         let source = jdk_bin.join(cmd);
         let target = bin_dir.join(cmd);
-        
+
         if source.exists() {
             create_symlink(&source, &target)?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -251,7 +271,12 @@ pub struct VenvCreateArgs {
     #[clap(index = 1, help = "虚拟环境名称")]
     pub name: Option<String>,
 
-    #[clap(long, alias = "jv", default_value = "17", help = "Java版本 (8, 11, 17, 21, 25)")]
+    #[clap(
+        long,
+        alias = "jv",
+        default_value = "17",
+        help = "Java版本 (8, 11, 17, 21, 25)"
+    )]
     pub java_version: String,
 
     #[clap(long, alias = "mv", help = "Maven版本 (默认使用Maven作为构建工具)")]
@@ -285,7 +310,10 @@ impl VenvCreateArgs {
         let build_tool = if let Some(gradle_version) = &self.gradle_version {
             BuildTool::Gradle(gradle_version.clone())
         } else {
-            let maven_version = self.maven_version.clone().unwrap_or_else(|| "3.9.9".to_string());
+            let maven_version = self
+                .maven_version
+                .clone()
+                .unwrap_or_else(|| "3.9.9".to_string());
             BuildTool::Maven(maven_version)
         };
         create(self.name.clone(), self.java_version.clone(), build_tool).await
@@ -374,9 +402,7 @@ pub fn remove() -> Result<()> {
     let venv_dir = std::env::current_dir()?.join(".jx");
 
     if !venv_dir.exists() {
-        return Err(anyhow::anyhow!(
-            "当前目录下不存在虚拟环境 (.jx/)"
-        ));
+        return Err(anyhow::anyhow!("当前目录下不存在虚拟环境 (.jx/)"));
     }
 
     // 检查是否正在使用
@@ -399,15 +425,15 @@ pub fn remove() -> Result<()> {
 /// 显示虚拟环境信息
 pub fn info(_name: Option<String>) -> Result<()> {
     let venv_dir = std::env::current_dir()?.join(".jx");
-    
+
     if !venv_dir.exists() {
         return Err(anyhow::anyhow!("当前目录没有虚拟环境 (.jx/ 不存在)"));
     }
-    
+
     println!("ℹ️ 项目虚拟环境信息");
     println!("");
     println!("路径: {}", venv_dir.display());
-    
+
     // 读取配置
     let config_file = venv_dir.join("venv.toml");
     if config_file.exists() {
@@ -420,20 +446,20 @@ pub fn info(_name: Option<String>) -> Result<()> {
             println!("Gradle版本: {}", config.gradle_version);
         }
     }
-    
+
     // 符号链接状态
     let bin_dir = venv_dir.join("bin");
     if bin_dir.exists() {
         println!("");
         println!("符号链接状态:");
-        
+
         let broken = check_symlink_validity(&bin_dir)?;
-        
+
         for entry in fs::read_dir(&bin_dir)? {
             let entry = entry?;
             let path = entry.path();
             let name = path.file_name().unwrap().to_string_lossy();
-            
+
             if path.is_symlink() {
                 let target = fs::read_link(&path)?;
                 let status = if broken.contains(&name.to_string()) {
@@ -444,16 +470,23 @@ pub fn info(_name: Option<String>) -> Result<()> {
                 println!("  {} {} -> {}", name, status, target.display());
             }
         }
-        
+
         if !broken.is_empty() {
             println!("");
             println!("⚠️ 检测到损坏的符号链接，运行修复命令可自动重建");
         }
     }
-    
+
     println!("");
-    println!("状态: {}", if venv_dir.join(".active").exists() { "🔌 激活" } else { "未激活" });
-    
+    println!(
+        "状态: {}",
+        if venv_dir.join(".active").exists() {
+            "🔌 激活"
+        } else {
+            "未激活"
+        }
+    );
+
     Ok(())
 }
 
@@ -473,7 +506,7 @@ fn get_cache_directory() -> Result<PathBuf> {
     Ok(cache_dir)
 }
 
-fn get_active_venv() -> Result<Option<String>> {
+/**fn get_active_venv() -> Result<Option<String>> {
     let activation_file = get_jx_home()?.join(".active_venv");
     if activation_file.exists() {
         let content = fs::read_to_string(&activation_file)?;
@@ -481,31 +514,36 @@ fn get_active_venv() -> Result<Option<String>> {
     } else {
         Ok(None)
     }
-}
+}*/
 
 fn create_venv_config(venv_dir: &Path, java_version: &str, build_tool: &BuildTool) -> Result<()> {
     let (maven_version, gradle_version) = match build_tool {
         BuildTool::Maven(version) => (version.clone(), String::new()),
         BuildTool::Gradle(version) => (String::new(), version.clone()),
     };
-    
+
     // 获取缓存路径名称
     let (_, arch) = parse_java_version(java_version)?;
     let os = get_os_type()?;
-    let java_cache_name = format!("jdk-{}-{}-{}", java_version.split('.').next().unwrap_or(java_version), os, arch);
-    
+    let java_cache_name = format!(
+        "jdk-{}-{}-{}",
+        java_version.split('.').next().unwrap_or(java_version),
+        os,
+        arch
+    );
+
     let maven_cache_name = if !maven_version.is_empty() {
         format!("apache-maven-{}", maven_version)
     } else {
         String::new()
     };
-    
+
     let gradle_cache_name = if !gradle_version.is_empty() {
         format!("gradle-{}", gradle_version)
     } else {
         String::new()
     };
-    
+
     let config_content = format!(
         r#"# jx 项目虚拟环境配置
 # 创建时间: {}
@@ -527,55 +565,55 @@ gradle = "{}"
         maven_cache_name,
         gradle_cache_name
     );
-    
+
     let config_file = venv_dir.join("venv.toml");
     fs::write(config_file, config_content)?;
-    
+
     Ok(())
 }
 
 async fn install_java(venv_dir: &Path, version: &str) -> Result<()> {
     println!("📥 安装Java {}...", version);
-    
+
     // 解析版本获取缓存目录名
     let (major_version, arch) = parse_java_version(version)?;
     let os = get_os_type()?;
     let cache_name = format!("jdk-{}-{}-{}", major_version, os, arch);
-    
+
     let cache_dir = get_cache_directory()?;
     let java_cache_dir = cache_dir.join("java");
     fs::create_dir_all(&java_cache_dir)?;
-    
+
     let cached_java = java_cache_dir.join(&cache_name);
-    
+
     // 如果缓存不存在，下载并解压
     if !cached_java.exists() {
         println!("🌐 下载Java {}...", major_version);
-        
+
         let download_url = build_java_download_url(major_version, &arch, &os)?;
         let filename = get_java_filename_from_url(&download_url)?;
-        
+
         let archives_dir = cache_dir.join("archives").join("java");
         fs::create_dir_all(&archives_dir)?;
         let archive_path = archives_dir.join(&filename);
-        
+
         // 下载压缩包
         download_file(&download_url, &archive_path).await?;
-        
+
         // 解压到缓存目录
         println!("📦 解压Java到缓存...");
         extract_to_cache(&archive_path, &cached_java, "jdk")?;
     } else {
         println!("📋 使用缓存中的Java {}", major_version);
     }
-    
+
     // 设置执行权限
     set_java_bin_permissions(&cached_java)?;
-    
+
     // 创建符号链接到项目 bin/
     let bin_dir = venv_dir.join("bin");
     create_java_bin_symlinks(&cached_java, &bin_dir)?;
-    
+
     // 验证
     let java_bin = find_java_bin(&cached_java);
     if let Ok(output) = Command::new(&java_bin).arg("-version").output() {
@@ -583,7 +621,7 @@ async fn install_java(venv_dir: &Path, version: &str) -> Result<()> {
         println!("✅ Java安装成功!");
         println!("版本: {}", version_output.lines().next().unwrap_or(""));
     }
-    
+
     Ok(())
 }
 
@@ -793,7 +831,7 @@ fn set_maven_bin_permissions(maven_dir: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        
+
         let bin_dir = maven_dir.join("bin");
         if bin_dir.exists() {
             for entry in fs::read_dir(&bin_dir)? {
@@ -822,7 +860,7 @@ fn set_gradle_bin_permissions(gradle_dir: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        
+
         let bin_dir = gradle_dir.join("bin");
         if bin_dir.exists() {
             for entry in fs::read_dir(&bin_dir)? {
@@ -849,58 +887,60 @@ fn create_gradle_bin_symlinks(gradle_dir: &Path, bin_dir: &Path) -> Result<()> {
 
 pub fn heal_venv(venv_dir: &Path) -> Result<()> {
     println!("🔧 修复虚拟环境...");
-    
+
     let config = load_venv_config(&venv_dir.join("venv.toml"))?;
     let cache_dir = get_cache_directory()?;
     let bin_dir = venv_dir.join("bin");
-    
+
     fs::create_dir_all(&bin_dir)?;
-    
+
     // 修复 Java
     if !config.cache_paths.java.is_empty() {
         let java_cache = cache_dir.join("java").join(&config.cache_paths.java);
-        
+
         if !java_cache.exists() {
             println!("🔗 Java 缓存不存在，正在重新下载...");
-            let major: u8 = config.java_version.split('.')
+            let major: u8 = config
+                .java_version
+                .split('.')
                 .next()
                 .unwrap_or(&config.java_version)
                 .parse()
                 .map_err(|_| anyhow::anyhow!("无效的Java版本"))?;
-            
+
             download_java_to_cache_sync(major, &java_cache)?;
         }
-        
+
         create_java_bin_symlinks(&java_cache, &bin_dir)?;
         println!("✅ Java 符号链接已重建");
     }
-    
+
     // 修复 Maven
     if !config.cache_paths.maven.is_empty() {
         let maven_cache = cache_dir.join("maven").join(&config.cache_paths.maven);
-        
+
         if !maven_cache.exists() {
             println!("🔗 Maven 缓存不存在，正在重新下载...");
             download_maven_to_cache_sync(&config.maven_version, &maven_cache)?;
         }
-        
+
         create_maven_bin_symlinks(&maven_cache, &bin_dir)?;
         println!("✅ Maven 符号链接已重建");
     }
-    
+
     // 修复 Gradle
     if !config.cache_paths.gradle.is_empty() {
         let gradle_cache = cache_dir.join("gradle").join(&config.cache_paths.gradle);
-        
+
         if !gradle_cache.exists() {
             println!("🔗 Gradle 缓存不存在，正在重新下载...");
             download_gradle_to_cache_sync(&config.gradle_version, &gradle_cache)?;
         }
-        
+
         create_gradle_bin_symlinks(&gradle_cache, &bin_dir)?;
         println!("✅ Gradle 符号链接已重建");
     }
-    
+
     println!("✅ 虚拟环境修复完成");
     Ok(())
 }
@@ -908,26 +948,29 @@ pub fn heal_venv(venv_dir: &Path) -> Result<()> {
 fn download_java_to_cache_sync(major_version: u8, target_dir: &Path) -> Result<()> {
     let (_, arch) = parse_java_version(&major_version.to_string())?;
     let os = get_os_type()?;
-    
+
     let download_url = build_java_download_url(major_version, &arch, &os)?;
     let filename = get_java_filename_from_url(&download_url)?;
-    
+
     let archives_dir = get_cache_directory()?.join("archives").join("java");
     fs::create_dir_all(&archives_dir)?;
     let archive_path = archives_dir.join(&filename);
-    
+
     let output = Command::new("curl")
         .args(&["-L", "-o", archive_path.to_str().unwrap(), &download_url])
         .output()
         .context("下载 Java 失败")?;
-    
+
     if !output.status.success() {
-        return Err(anyhow::anyhow!("下载失败: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(anyhow::anyhow!(
+            "下载失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    
+
     extract_to_cache(&archive_path, target_dir, "jdk")?;
     set_java_bin_permissions(target_dir)?;
-    
+
     Ok(())
 }
 
@@ -936,23 +979,26 @@ fn download_maven_to_cache_sync(version: &str, target_dir: &Path) -> Result<()> 
         "https://archive.apache.org/dist/maven/maven-3/{}/binaries/apache-maven-{}-bin.tar.gz",
         version, version
     );
-    
+
     let archives_dir = get_cache_directory()?.join("archives").join("maven");
     fs::create_dir_all(&archives_dir)?;
     let archive_path = archives_dir.join(format!("apache-maven-{}-bin.tar.gz", version));
-    
+
     let output = Command::new("curl")
         .args(&["-L", "-o", archive_path.to_str().unwrap(), &download_url])
         .output()
         .context("下载 Maven 失败")?;
-    
+
     if !output.status.success() {
-        return Err(anyhow::anyhow!("下载失败: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(anyhow::anyhow!(
+            "下载失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    
+
     extract_to_cache(&archive_path, target_dir, "apache-maven")?;
     set_maven_bin_permissions(target_dir)?;
-    
+
     Ok(())
 }
 
@@ -961,114 +1007,129 @@ fn download_gradle_to_cache_sync(version: &str, target_dir: &Path) -> Result<()>
         "https://services.gradle.org/distributions/gradle-{}-bin.zip",
         version
     );
-    
+
     let archives_dir = get_cache_directory()?.join("archives").join("gradle");
     fs::create_dir_all(&archives_dir)?;
     let archive_path = archives_dir.join(format!("gradle-{}-bin.zip", version));
-    
+
     let output = Command::new("curl")
         .args(&["-L", "-o", archive_path.to_str().unwrap(), &download_url])
         .output()
         .context("下载 Gradle 失败")?;
-    
+
     if !output.status.success() {
-        return Err(anyhow::anyhow!("下载失败: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(anyhow::anyhow!(
+            "下载失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    
+
     extract_to_cache(&archive_path, target_dir, "gradle-")?;
     set_gradle_bin_permissions(target_dir)?;
-    
+
     Ok(())
 }
 
 async fn install_maven(venv_dir: &Path, version: &str) -> Result<()> {
     println!("📥 安装Maven {}...", version);
-    
+
     let cache_name = format!("apache-maven-{}", version);
-    
+
     let cache_dir = get_cache_directory()?;
     let maven_cache_dir = cache_dir.join("maven");
     fs::create_dir_all(&maven_cache_dir)?;
-    
+
     let cached_maven = maven_cache_dir.join(&cache_name);
-    
+
     if !cached_maven.exists() {
         println!("🌐 下载Maven {}...", version);
-        
+
         let download_url = format!(
             "https://archive.apache.org/dist/maven/maven-3/{}/binaries/apache-maven-{}-bin.tar.gz",
             version, version
         );
-        
+
         let archives_dir = cache_dir.join("archives").join("maven");
         fs::create_dir_all(&archives_dir)?;
         let archive_path = archives_dir.join(format!("apache-maven-{}-bin.tar.gz", version));
-        
+
         download_file(&download_url, &archive_path).await?;
-        
+
         println!("📦 解压Maven到缓存...");
         extract_to_cache(&archive_path, &cached_maven, "apache-maven")?;
     } else {
         println!("📋 使用缓存中的Maven {}", version);
     }
-    
+
     // 设置权限
     set_maven_bin_permissions(&cached_maven)?;
-    
+
     // 创建符号链接
     let bin_dir = venv_dir.join("bin");
     create_maven_bin_symlinks(&cached_maven, &bin_dir)?;
-    
+
     let mvn_bin = cached_maven.join("bin").join("mvn");
     if let Ok(output) = Command::new(&mvn_bin).arg("--version").output() {
         println!("✅ Maven安装成功!");
-        println!("版本: {}", String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or(""));
+        println!(
+            "版本: {}",
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+        );
     }
-    
+
     Ok(())
 }
 
 async fn install_gradle(venv_dir: &Path, version: &str) -> Result<()> {
     println!("📥 安装Gradle {}...", version);
-    
+
     let cache_name = format!("gradle-{}", version);
-    
+
     let cache_dir = get_cache_directory()?;
     let gradle_cache_dir = cache_dir.join("gradle");
     fs::create_dir_all(&gradle_cache_dir)?;
-    
+
     let cached_gradle = gradle_cache_dir.join(&cache_name);
-    
+
     if !cached_gradle.exists() {
         println!("🌐 下载Gradle {}...", version);
-        
+
         let download_url = format!(
             "https://services.gradle.org/distributions/gradle-{}-bin.zip",
             version
         );
-        
+
         let archives_dir = cache_dir.join("archives").join("gradle");
         fs::create_dir_all(&archives_dir)?;
         let archive_path = archives_dir.join(format!("gradle-{}-bin.zip", version));
-        
+
         download_file(&download_url, &archive_path).await?;
-        
+
         println!("📦 解压Gradle到缓存...");
         extract_to_cache(&archive_path, &cached_gradle, "gradle-")?;
     } else {
         println!("📋 使用缓存中的Gradle {}", version);
     }
-    
+
     set_gradle_bin_permissions(&cached_gradle)?;
-    
+
     let bin_dir = venv_dir.join("bin");
     create_gradle_bin_symlinks(&cached_gradle, &bin_dir)?;
-    
+
     let gradle_bin = cached_gradle.join("bin").join("gradle");
     if let Ok(output) = Command::new(&gradle_bin).arg("--version").output() {
         println!("✅ Gradle安装成功!");
-        println!("版本: {}", String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or(""));
+        println!(
+            "版本: {}",
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+        );
     }
-    
+
     Ok(())
 }
