@@ -374,9 +374,6 @@ pub async fn create(
             }
         }
 
-        // 创建激活标记文件
-        fs::write(venv_dir.join(".active"), "")?;
-
         Ok(())
     }
     .await;
@@ -392,7 +389,7 @@ pub async fn create(
     println!("✅ 虚拟环境创建成功!");
     println!("路径: {}", venv_dir.display());
     println!("");
-    println!("虚拟环境已自动激活。");
+    println!("虚拟环境已就绪。");
 
     Ok(())
 }
