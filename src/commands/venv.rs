@@ -474,16 +474,6 @@ pub fn info(_name: Option<String>) -> Result<()> {
         }
     }
 
-    println!("");
-    println!(
-        "状态: {}",
-        if venv_dir.join(".active").exists() {
-            "🔌 激活"
-        } else {
-            "未激活"
-        }
-    );
-
     Ok(())
 }
 
